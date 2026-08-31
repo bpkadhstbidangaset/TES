@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-import io
 
 # Konfigurasi Halaman
 st.set_page_config(
@@ -54,6 +53,18 @@ def format_rupiah(val):
         return "Rp 0"
     return f"Rp {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+# 8 Kolom Pilihan
+KOLOM_DETAIL_PILIHAN = [
+    'Kode Sub Kegiatan',
+    'Nama Sub Kegiatan',
+    'Kode Rekening',
+    'Nama Rekening',
+    'Nomor Dokumen',
+    'Tanggal Dokumen',
+    'Keterangan Dokumen',
+    'Nilai Realisasi'
+]
+
 # --- LOAD MASTER PATOKAN RAK ---
 @st.cache_data
 def load_master_rak():
@@ -82,7 +93,7 @@ rek_persediaan, df_modal_map, error_msg = load_master_rak()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135679.png", width=70)
     st.markdown("### **Panel Kontrol**")
-    st.info("📌 **Master Patokan:** Otomatis terbaca dari repository GitHub.")
+    st.info("📌 **Master Patokan:** Otomatis aktif dari repository.")
     
     f_lra = st.file_uploader("📥 Upload LRA Realisasi (.xlsx)", type=["xlsx"])
     st.markdown("---")
@@ -90,7 +101,7 @@ with st.sidebar:
 
 # --- HEADER UTAMA ---
 st.markdown('<div class="main-header">🏛️ Rekonsiliasi Rekening Persediaan & Belanja Modal</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Pencocokan Realisasi SP2D terhadap Klasifikasi Aset & Persediaan Daerah</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Pencocokan Realisasi LRA terhadap Klasifikasi Persediaan dan Belanja Modal</div>', unsafe_allow_html=True)
 
 if error_msg:
     st.error(f"⚠️ {error_msg}")
@@ -123,7 +134,7 @@ if f_lra:
         df_pers_filtered = df_rekon_pers.copy()
         df_modal_filtered = df_rekon_modal.copy()
 
-    # --- RINGKASAN ATAS (METRICS) ---
+    # --- RINGKASAN METRICS ---
     total_p = df_pers_filtered['Nilai Realisasi'].sum()
     total_m = df_modal_filtered['Nilai Realisasi'].sum()
     grand_total = total_p + total_m
@@ -160,18 +171,15 @@ if f_lra:
         if not df_pers_filtered.empty:
             rekap_p = df_pers_filtered.groupby(['Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
             
-            # Tambahkan baris TOTAL di bawah rekap
+            # Tambahkan baris TOTAL di bawah
             baris_total_p = pd.DataFrame([{
                 'Kode Rekening': 'TOTAL',
                 'Nama Rekening': 'JUMLAH KESELURUHAN',
                 'Nilai Realisasi': rekap_p['Nilai Realisasi'].sum()
             }])
             rekap_p_tampil = pd.concat([rekap_p, baris_total_p], ignore_index=True)
-            
-            # Format Rupiah
             rekap_p_tampil['Realisasi (Rp)'] = rekap_p_tampil['Nilai Realisasi'].apply(format_rupiah)
             
-            # Render Table
             st.dataframe(
                 rekap_p_tampil[['Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']],
                 use_container_width=True,
@@ -179,15 +187,15 @@ if f_lra:
             )
 
             st.markdown("---")
-            st.subheader("2. Rincian Data Transaksi (SP2D / Dokumen)")
-            kolom_p = ['Tanggal SP2D', 'Nomor SP2D', 'Kode Rekening', 'Nama Rekening', 'Keterangan Dokumen', 'Nilai Realisasi']
-            kolom_valid_p = [c for c in kolom_p if c in df_pers_filtered.columns]
+            st.subheader("2. Rincian Dokumen Realisasi")
             
-            df_detail_p = df_pers_filtered[kolom_valid_p].copy()
+            # Filter hanya 8 kolom pilihan
+            df_detail_p = df_pers_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_pers_filtered.columns]].copy()
             df_detail_p['Nilai Realisasi'] = df_detail_p['Nilai Realisasi'].apply(format_rupiah)
+            
             st.dataframe(df_detail_p, use_container_width=True, hide_index=True)
         else:
-            st.warning("Tidak ditemukan data realisasi persediaan untuk pilihan SKPD ini.")
+            st.warning("Tidak ditemukan data realisasi persediaan untuk SKPD ini.")
 
     # ================= TAB 2: BELANJA MODAL =================
     with tab2:
@@ -195,7 +203,7 @@ if f_lra:
         if not df_modal_filtered.empty:
             rekap_m = df_modal_filtered.groupby(['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
             
-            # Tambahkan baris TOTAL di bawah rekap
+            # Tambahkan baris TOTAL di bawah
             baris_total_m = pd.DataFrame([{
                 'Kode Kategori': 'TOTAL',
                 'Uraian Kategori': 'JUMLAH KESELURUHAN',
@@ -204,11 +212,8 @@ if f_lra:
                 'Nilai Realisasi': rekap_m['Nilai Realisasi'].sum()
             }])
             rekap_m_tampil = pd.concat([rekap_m, baris_total_m], ignore_index=True)
-            
-            # Format Rupiah
             rekap_m_tampil['Realisasi (Rp)'] = rekap_m_tampil['Nilai Realisasi'].apply(format_rupiah)
 
-            # Render Table
             st.dataframe(
                 rekap_m_tampil[['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']],
                 use_container_width=True,
@@ -216,16 +221,15 @@ if f_lra:
             )
 
             st.markdown("---")
-            st.subheader("2. Rincian Data Transaksi (SP2D / Dokumen)")
-            kolom_m = ['Tanggal SP2D', 'Nomor SP2D', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Keterangan Dokumen', 'Nilai Realisasi']
-            kolom_valid_m = [c for c in kolom_m if c in df_modal_filtered.columns]
+            st.subheader("2. Rincian Dokumen Realisasi")
             
-            df_detail_m = df_modal_filtered[kolom_valid_m].copy()
+            # Filter hanya 8 kolom pilihan
+            df_detail_m = df_modal_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_modal_filtered.columns]].copy()
             df_detail_m['Nilai Realisasi'] = df_detail_m['Nilai Realisasi'].apply(format_rupiah)
+            
             st.dataframe(df_detail_m, use_container_width=True, hide_index=True)
         else:
-            st.warning("Tidak ditemukan data realisasi belanja modal untuk pilihan SKPD ini.")
+            st.warning("Tidak ditemukan data realisasi belanja modal untuk SKPD ini.")
 
 else:
-    # State Awal Saat Belum Upload
-    st.info("👈 Silakan upload file **`LRA REALISASI JAN-JUNI30.xlsx`** pada menu di sebelah kiri untuk menampilkan rekapitulasi.")
+    st.info("👈 Silakan upload file **`LRA REALISASI JAN-JUNI30.xlsx`** pada menu di sebelah kiri.")
