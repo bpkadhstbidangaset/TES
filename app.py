@@ -147,7 +147,7 @@ rek_persediaan, df_modal_map, error_msg = load_master_rak()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135679.png", width=70)
     st.markdown("### **Panel Kontrol**")
-    st.info("📌 **Master RAK Modal:** Terkunci otomatis (Akun `5.2...`)")
+    st.info("📌 **Master RAK Belanja sudah di SISTEM**")
     
     f_lra = st.file_uploader("📥 Upload LRA Realisasi (.xlsx)", type=["xlsx"])
     st.markdown("---")
@@ -553,4 +553,4 @@ if f_lra:
             st.warning("Tidak ditemukan data belanja modal untuk SKPD ini.")
 
 else:
-    st.info("👈 Silakan upload file **`LRA REALISASI JAN-JUNI30.xlsx`** pada menu di sebelah kiri.")
+    st.info("👈 Silakan upload file **LRA REALISASI** pada menu di sebelah kiri.")
