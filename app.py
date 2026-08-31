@@ -48,7 +48,7 @@ st.markdown("""
     table.custom-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 13.5px;
+        font-size: 13px;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     table.custom-table th {
@@ -56,12 +56,12 @@ st.markdown("""
         color: #1E293B;
         font-weight: 700;
         text-align: left;
-        padding: 12px 10px;
+        padding: 11px 10px;
         border-bottom: 2px solid #CBD5E1;
         white-space: nowrap;
     }
     table.custom-table td {
-        padding: 10px 10px;
+        padding: 9px 10px;
         border-bottom: 1px solid #F1F5F9;
         color: #334155;
         vertical-align: middle;
@@ -90,7 +90,7 @@ st.markdown("""
     .text-code {
         white-space: nowrap;
         font-family: monospace;
-        font-size: 13px;
+        font-size: 12.5px;
         color: #475569;
     }
     
@@ -347,11 +347,57 @@ if f_lra:
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file SIPPER di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
+            # --- 2. RINCIAN PERSEDIAAN DENGAN BUBBLE & TOTAL ---
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_p = df_pers_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_pers_filtered.columns]].copy()
-            df_detail_p['Nilai Realisasi'] = df_detail_p['Nilai Realisasi'].apply(format_rupiah)
-            st.dataframe(df_detail_p, use_container_width=True, hide_index=True)
+            tot_rinci_p = df_detail_p['Nilai Realisasi'].sum()
+
+            rows_rinci_p_html = ""
+            for _, r in df_detail_p.iterrows():
+                rows_rinci_p_html += f"""<tr>
+                    <td class='text-code'>{r['Kode Sub Kegiatan']}</td>
+                    <td>{r['Nama Sub Kegiatan']}</td>
+                    <td class='text-code'>{r['Kode Rekening']}</td>
+                    <td>{r['Nama Rekening']}</td>
+                    <td class='text-code'>{r['Nomor Dokumen']}</td>
+                    <td class='text-center'>{pd.to_datetime(r['Tanggal Dokumen']).strftime('%d/%m/%Y') if pd.notna(r['Tanggal Dokumen']) and hasattr(r['Tanggal Dokumen'], 'strftime') else str(r['Tanggal Dokumen'])}</td>
+                    <td>{r['Keterangan Dokumen']}</td>
+                    <td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td>
+                </tr>"""
+
+            table_rinci_p_html = f"""
+            <div class="table-container">
+                <table class='custom-table'>
+                    <thead>
+                        <tr>
+                            <th>Kode Sub Kegiatan</th>
+                            <th>Nama Sub Kegiatan</th>
+                            <th>Kode Rekening</th>
+                            <th>Nama Rekening</th>
+                            <th>Nomor Dokumen</th>
+                            <th class='text-center'>Tanggal Dokumen</th>
+                            <th>Keterangan Dokumen</th>
+                            <th class='text-right'>Nilai Realisasi (Rp)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_rinci_p_html}
+                        <tr class='total-row'>
+                            <td>TOTAL</td>
+                            <td>JUMLAH REALISASI DOKUMEN</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td class='text-center'>-</td>
+                            <td>-</td>
+                            <td class='text-right'>{format_rupiah(tot_rinci_p)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            """
+            st.markdown(table_rinci_p_html, unsafe_allow_html=True)
         else:
             st.warning("Tidak ditemukan data persediaan untuk SKPD ini.")
 
@@ -482,11 +528,57 @@ if f_lra:
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file Pengadaan Aset di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
+            # --- 2. RINCIAN MODAL DENGAN BUBBLE & TOTAL ---
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_m = df_modal_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_modal_filtered.columns]].copy()
-            df_detail_m['Nilai Realisasi'] = df_detail_m['Nilai Realisasi'].apply(format_rupiah)
-            st.dataframe(df_detail_m, use_container_width=True, hide_index=True)
+            tot_rinci_m = df_detail_m['Nilai Realisasi'].sum()
+
+            rows_rinci_m_html = ""
+            for _, r in df_detail_m.iterrows():
+                rows_rinci_m_html += f"""<tr>
+                    <td class='text-code'>{r['Kode Sub Kegiatan']}</td>
+                    <td>{r['Nama Sub Kegiatan']}</td>
+                    <td class='text-code'>{r['Kode Rekening']}</td>
+                    <td>{r['Nama Rekening']}</td>
+                    <td class='text-code'>{r['Nomor Dokumen']}</td>
+                    <td class='text-center'>{pd.to_datetime(r['Tanggal Dokumen']).strftime('%d/%m/%Y') if pd.notna(r['Tanggal Dokumen']) and hasattr(r['Tanggal Dokumen'], 'strftime') else str(r['Tanggal Dokumen'])}</td>
+                    <td>{r['Keterangan Dokumen']}</td>
+                    <td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td>
+                </tr>"""
+
+            table_rinci_m_html = f"""
+            <div class="table-container">
+                <table class='custom-table'>
+                    <thead>
+                        <tr>
+                            <th>Kode Sub Kegiatan</th>
+                            <th>Nama Sub Kegiatan</th>
+                            <th>Kode Rekening</th>
+                            <th>Nama Rekening</th>
+                            <th>Nomor Dokumen</th>
+                            <th class='text-center'>Tanggal Dokumen</th>
+                            <th>Keterangan Dokumen</th>
+                            <th class='text-right'>Nilai Realisasi (Rp)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_rinci_m_html}
+                        <tr class='total-row'>
+                            <td>TOTAL</td>
+                            <td>JUMLAH REALISASI DOKUMEN</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td class='text-center'>-</td>
+                            <td>-</td>
+                            <td class='text-right'>{format_rupiah(tot_rinci_m)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            """
+            st.markdown(table_rinci_m_html, unsafe_allow_html=True)
         else:
             st.warning("Tidak ditemukan data belanja modal untuk SKPD ini.")
 
