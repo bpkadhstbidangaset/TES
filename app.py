@@ -10,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Modern dengan Bubble & Card Container
+# Custom CSS Modern dengan Independent Scroll Box & Sticky Header
 st.markdown("""
 <style>
     .main-header { font-size: 26px; font-weight: 700; color: #1E3A8A; margin-bottom: 2px; }
@@ -32,49 +32,58 @@ st.markdown("""
         padding: 14px 18px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px;
     }
     
-    /* Container Box / Bubble Table */
+    /* Container Box / Bubble Table Mandiri dengan Max-Height */
     .table-container {
         background-color: #FFFFFF;
         border-radius: 12px;
-        border: 1px solid #E2E8F0;
+        border: 1px solid #CBD5E1;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        padding: 12px 16px;
         margin-top: 10px;
-        margin-bottom: 20px;
-        overflow-x: auto;
+        margin-bottom: 25px;
+        max-height: 480px; /* Batas tinggi scroll box */
+        overflow-y: auto;  /* Scroll vertikal mandiri */
+        overflow-x: auto;  /* Scroll horizontal mandiri */
+        position: relative;
     }
     
     /* Table Styling */
     table.custom-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         font-size: 13px;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     table.custom-table th {
-        background-color: #F8FAFC;
+        background-color: #F1F5F9;
         color: #1E293B;
         font-weight: 700;
         text-align: left;
-        padding: 11px 10px;
-        border-bottom: 2px solid #CBD5E1;
+        padding: 11px 12px;
+        border-bottom: 2px solid #94A3B8;
         white-space: nowrap;
+        position: sticky;
+        top: 0; /* Header tetap menempel di atas */
+        z-index: 10;
     }
     table.custom-table td {
-        padding: 9px 10px;
+        padding: 9px 12px;
         border-bottom: 1px solid #F1F5F9;
         color: #334155;
         vertical-align: middle;
     }
-    table.custom-table tr:hover {
+    table.custom-table tr:hover td {
         background-color: #F8FAFC;
     }
     table.custom-table tr.total-row td {
-        background-color: #F1F5F9 !important;
+        background-color: #E2E8F0 !important;
         font-weight: 800 !important;
         color: #0F172A !important;
         border-top: 2px solid #94A3B8 !important;
         border-bottom: 2px solid #94A3B8 !important;
+        position: sticky;
+        bottom: 0; /* Total tetap menempel di bawah */
+        z-index: 9;
     }
     
     /* Alignment & Formats */
@@ -136,7 +145,6 @@ def format_rupiah(val):
         return "Rp 0"
     return f"Rp {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# 8 Kolom Pilihan
 KOLOM_DETAIL_PILIHAN = [
     'Kode Sub Kegiatan',
     'Nama Sub Kegiatan',
@@ -157,11 +165,9 @@ def load_master_rak():
     if not os.path.exists(file_persediaan) or not os.path.exists(file_modal):
         return None, None, f"File '{file_persediaan}' atau '{file_modal}' tidak ditemukan."
 
-    # 1. Master Persediaan
     df_p_raw = pd.read_excel(file_persediaan, header=None).iloc[2:]
     rek_persediaan = set(df_p_raw[1].dropna().astype(str).str.strip()) - {'-', 'KODE REKENING'}
 
-    # 2. Master Belanja Modal (Akun 5.2)
     df_m_raw = pd.read_excel(file_modal, header=None).iloc[1:]
     df_m_raw.columns = ['Kode Kategori', 'Uraian Kategori', 'Uraian Rekening', 'Kode Rekening']
     df_m_clean = df_m_raw.dropna(subset=['Kode Rekening']).copy()
@@ -289,12 +295,12 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='width: 15%;'>Kode Rekening</th>
-                                <th>Nama Rekening</th>
-                                <th class='text-right' style='width: 14%;'>Realisasi LRA (Rp)</th>
-                                <th class='text-right' style='width: 14%;'>Nilai SIPPER (Rp)</th>
-                                <th class='text-right' style='width: 14%;'>Selisih (Rp)</th>
-                                <th class='text-center' style='width: 10%;'>Status</th>
+                                <th style='min-width: 170px;'>Kode Rekening</th>
+                                <th style='min-width: 250px;'>Nama Rekening</th>
+                                <th class='text-right' style='min-width: 150px;'>Realisasi LRA (Rp)</th>
+                                <th class='text-right' style='min-width: 150px;'>Nilai SIPPER (Rp)</th>
+                                <th class='text-right' style='min-width: 140px;'>Selisih (Rp)</th>
+                                <th class='text-center' style='min-width: 110px;'>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -328,9 +334,9 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='width: 20%;'>Kode Rekening</th>
-                                <th>Nama Rekening</th>
-                                <th class='text-right' style='width: 20%;'>Realisasi (Rp)</th>
+                                <th style='min-width: 180px;'>Kode Rekening</th>
+                                <th style='min-width: 280px;'>Nama Rekening</th>
+                                <th class='text-right' style='min-width: 180px;'>Realisasi (Rp)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -347,7 +353,7 @@ if f_lra:
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file SIPPER di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
-            # --- 2. RINCIAN PERSEDIAAN DENGAN BUBBLE & TOTAL ---
+            # --- 2. RINCIAN PERSEDIAAN DENGAN SCROLLBOX MANDIRI ---
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_p = df_pers_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_pers_filtered.columns]].copy()
@@ -371,14 +377,14 @@ if f_lra:
                 <table class='custom-table'>
                     <thead>
                         <tr>
-                            <th>Kode Sub Kegiatan</th>
-                            <th>Nama Sub Kegiatan</th>
-                            <th>Kode Rekening</th>
-                            <th>Nama Rekening</th>
-                            <th>Nomor Dokumen</th>
-                            <th class='text-center'>Tanggal Dokumen</th>
-                            <th>Keterangan Dokumen</th>
-                            <th class='text-right'>Nilai Realisasi (Rp)</th>
+                            <th style='min-width: 140px;'>Kode Sub Kegiatan</th>
+                            <th style='min-width: 200px;'>Nama Sub Kegiatan</th>
+                            <th style='min-width: 160px;'>Kode Rekening</th>
+                            <th style='min-width: 200px;'>Nama Rekening</th>
+                            <th style='min-width: 220px;'>Nomor Dokumen</th>
+                            <th class='text-center' style='min-width: 120px;'>Tanggal Dokumen</th>
+                            <th style='min-width: 250px;'>Keterangan Dokumen</th>
+                            <th class='text-right' style='min-width: 150px;'>Nilai Realisasi (Rp)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -462,14 +468,14 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='width: 12%;'>Kode Kategori</th>
-                                <th style='width: 15%;'>Uraian Kategori</th>
-                                <th style='width: 13%;'>Kode Rekening</th>
-                                <th>Nama Rekening</th>
-                                <th class='text-right' style='width: 13%;'>Realisasi LRA (Rp)</th>
-                                <th class='text-right' style='width: 13%;'>Nilai Aplikasi Aset (Rp)</th>
-                                <th class='text-right' style='width: 11%;'>Selisih (Rp)</th>
-                                <th class='text-center' style='width: 8%;'>Status</th>
+                                <th style='min-width: 140px;'>Kode Kategori</th>
+                                <th style='min-width: 170px;'>Uraian Kategori</th>
+                                <th style='min-width: 160px;'>Kode Rekening</th>
+                                <th style='min-width: 220px;'>Nama Rekening</th>
+                                <th class='text-right' style='min-width: 150px;'>Realisasi LRA (Rp)</th>
+                                <th class='text-right' style='min-width: 150px;'>Nilai Aplikasi Aset (Rp)</th>
+                                <th class='text-right' style='min-width: 140px;'>Selisih (Rp)</th>
+                                <th class='text-center' style='min-width: 100px;'>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -505,11 +511,11 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='width: 14%;'>Kode Kategori</th>
-                                <th style='width: 20%;'>Uraian Kategori</th>
-                                <th style='width: 16%;'>Kode Rekening</th>
-                                <th>Nama Rekening</th>
-                                <th class='text-right' style='width: 18%;'>Realisasi (Rp)</th>
+                                <th style='min-width: 140px;'>Kode Kategori</th>
+                                <th style='min-width: 180px;'>Uraian Kategori</th>
+                                <th style='min-width: 160px;'>Kode Rekening</th>
+                                <th style='min-width: 250px;'>Nama Rekening</th>
+                                <th class='text-right' style='min-width: 180px;'>Realisasi (Rp)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -528,7 +534,7 @@ if f_lra:
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file Pengadaan Aset di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
-            # --- 2. RINCIAN MODAL DENGAN BUBBLE & TOTAL ---
+            # --- 2. RINCIAN MODAL DENGAN SCROLLBOX MANDIRI ---
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_m = df_modal_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_modal_filtered.columns]].copy()
@@ -552,14 +558,14 @@ if f_lra:
                 <table class='custom-table'>
                     <thead>
                         <tr>
-                            <th>Kode Sub Kegiatan</th>
-                            <th>Nama Sub Kegiatan</th>
-                            <th>Kode Rekening</th>
-                            <th>Nama Rekening</th>
-                            <th>Nomor Dokumen</th>
-                            <th class='text-center'>Tanggal Dokumen</th>
-                            <th>Keterangan Dokumen</th>
-                            <th class='text-right'>Nilai Realisasi (Rp)</th>
+                            <th style='min-width: 140px;'>Kode Sub Kegiatan</th>
+                            <th style='min-width: 200px;'>Nama Sub Kegiatan</th>
+                            <th style='min-width: 160px;'>Kode Rekening</th>
+                            <th style='min-width: 200px;'>Nama Rekening</th>
+                            <th style='min-width: 220px;'>Nomor Dokumen</th>
+                            <th class='text-center' style='min-width: 120px;'>Tanggal Dokumen</th>
+                            <th style='min-width: 250px;'>Keterangan Dokumen</th>
+                            <th class='text-right' style='min-width: 150px;'>Nilai Realisasi (Rp)</th>
                         </tr>
                     </thead>
                     <tbody>
