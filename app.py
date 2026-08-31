@@ -29,37 +29,35 @@ st.markdown("""
         background-color: #FEF2F2; border-left: 5px solid #EF4444;
         padding: 14px 18px; border-radius: 8px; margin-top: 10px; margin-bottom: 20px;
     }
-    
-    /* Table Styling */
-    .custom-table {
+    table.custom-table {
         width: 100%;
         border-collapse: collapse;
+        margin-top: 10px;
         margin-bottom: 20px;
-        font-family: inherit;
         font-size: 14px;
     }
-    .custom-table th {
-        background-color: #F3F4F6;
-        color: #374151;
-        font-weight: 600;
+    table.custom-table th {
+        background-color: #F1F5F9;
+        color: #1E293B;
+        font-weight: 700;
         text-align: left;
-        padding: 10px 14px;
-        border: 1px solid #E5E7EB;
+        padding: 10px 12px;
+        border: 1px solid #CBD5E1;
     }
-    .custom-table td {
-        padding: 9px 14px;
-        border: 1px solid #E5E7EB;
-        color: #1F2937;
+    table.custom-table td {
+        padding: 9px 12px;
+        border: 1px solid #E2E8F0;
+        color: #334155;
     }
-    .custom-table tr:hover {
-        background-color: #F9FAFB;
+    table.custom-table tr:nth-child(even) {
+        background-color: #F8FAFC;
     }
-    .total-row td {
-        background-color: #F8FAFC !important;
+    table.custom-table tr.total-row td {
+        background-color: #E2E8F0 !important;
         font-weight: 800 !important;
         color: #0F172A !important;
-        border-top: 2px solid #CBD5E1 !important;
-        border-bottom: 2px solid #CBD5E1 !important;
+        border-top: 2px solid #94A3B8 !important;
+        border-bottom: 2px solid #94A3B8 !important;
     }
     .text-right { text-align: right; }
     .text-center { text-align: center; }
@@ -128,12 +126,10 @@ if error_msg:
 
 if f_lra:
     with st.spinner("Sedang memproses data realisasi LRA..."):
-        # Baca LRA
         df_lra = pd.read_excel(f_lra, sheet_name='Data Realisasi Dokumen', header=4)
         df_lra['Kode Rekening'] = df_lra['Kode Rekening'].astype(str).str.strip()
         df_lra['Nilai Realisasi'] = pd.to_numeric(df_lra['Nilai Realisasi'], errors='coerce').fillna(0)
 
-        # Filter Persediaan & Modal
         df_rekon_pers = df_lra[df_lra['Kode Rekening'].isin(rek_persediaan)].copy()
         df_rekon_modal = df_lra[
             (df_lra['Kode Rekening'].str.startswith('5.2')) & 
@@ -141,7 +137,7 @@ if f_lra:
         ].copy()
         df_rekon_modal = df_rekon_modal.merge(df_modal_map, on='Kode Rekening', how='left')
 
-    # --- FILTER SKPD ---
+    # Filter SKPD
     daftar_skpd = ["-- SEMUA SKPD --"] + sorted(list(df_lra['Nama SKPD'].dropna().unique()))
     col_filter, _ = st.columns([2, 1])
     with col_filter:
@@ -154,35 +150,19 @@ if f_lra:
         df_pers_filtered = df_rekon_pers.copy()
         df_modal_filtered = df_rekon_modal.copy()
 
-    # --- RINGKASAN METRICS ---
+    # Metric Cards
     total_p = df_pers_filtered['Nilai Realisasi'].sum()
     total_m = df_modal_filtered['Nilai Realisasi'].sum()
     grand_total = total_p + total_m
 
     m1, m2, m3 = st.columns(3)
     with m1:
-        st.markdown(f"""
-        <div class="metric-box" style="background: linear-gradient(135deg, #0D9488, #14B8A6);">
-            <div class="metric-title">📦 Total Belanja Persediaan (LRA)</div>
-            <div class="metric-value">{format_rupiah(total_p)}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-box" style="background: linear-gradient(135deg, #0D9488, #14B8A6);"><div class="metric-title">📦 Total Belanja Persediaan (LRA)</div><div class="metric-value">{format_rupiah(total_p)}</div></div>""", unsafe_allow_html=True)
     with m2:
-        st.markdown(f"""
-        <div class="metric-box" style="background: linear-gradient(135deg, #4F46E5, #6366F1);">
-            <div class="metric-title">🏢 Total Belanja Modal (LRA)</div>
-            <div class="metric-value">{format_rupiah(total_m)}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-box" style="background: linear-gradient(135deg, #4F46E5, #6366F1);"><div class="metric-title">🏢 Total Belanja Modal (LRA)</div><div class="metric-value">{format_rupiah(total_m)}</div></div>""", unsafe_allow_html=True)
     with m3:
-        st.markdown(f"""
-        <div class="metric-box" style="background: linear-gradient(135deg, #1E293B, #334155);">
-            <div class="metric-title">📊 Total Gabungan Realisasi</div>
-            <div class="metric-value">{format_rupiah(grand_total)}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-box" style="background: linear-gradient(135deg, #1E293B, #334155);"><div class="metric-title">📊 Total Gabungan Realisasi</div><div class="metric-value">{format_rupiah(grand_total)}</div></div>""", unsafe_allow_html=True)
 
-    # --- TABS KONTEN ---
     tab1, tab2 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL"])
 
     # ================= TAB 1: PERSEDIAAN =================
@@ -219,98 +199,26 @@ if f_lra:
                 tot_sipper_p = rekap_p['Nilai SIPPER'].sum()
                 tot_selisih_p = rekap_p['Selisih'].sum()
 
-                # Buat HTML Table dengan Baris TOTAL Tebal
-                rows_html = ""
-                for _, row in rekap_p.iterrows():
-                    rows_html += f"""
-                    <tr>
-                        <td>{row['Kode Rekening']}</td>
-                        <td>{row['Nama Rekening']}</td>
-                        <td class="text-right">{format_rupiah(row['Nilai Realisasi'])}</td>
-                        <td class="text-right">{format_rupiah(row['Nilai SIPPER'])}</td>
-                        <td class="text-right">{format_rupiah(row['Selisih'])}</td>
-                        <td class="text-center">{row['Status']}</td>
-                    </tr>
-                    """
+                rows_html = "".join([
+                    f"<tr><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td><td class='text-right'>{format_rupiah(r['Nilai SIPPER'])}</td><td class='text-right'>{format_rupiah(r['Selisih'])}</td><td class='text-center'>{r['Status']}</td></tr>"
+                    for _, r in rekap_p.iterrows()
+                ])
+                tot_status_p = '✅ COCOK' if round(tot_selisih_p, 2) == 0 else '❌ SELISIH'
                 
-                total_status_p = '✅ COCOK' if round(tot_selisih_p, 2) == 0 else '❌ SELISIH'
-                table_html = f"""
-                <table class="custom-table">
-                    <thead>
-                        <tr>
-                            <th>Kode Rekening</th>
-                            <th>Nama Rekening</th>
-                            <th class="text-right">Realisasi LRA (Rp)</th>
-                            <th class="text-right">Nilai SIPPER (Rp)</th>
-                            <th class="text-right">Selisih (Rp)</th>
-                            <th class="text-center">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                        <tr class="total-row">
-                            <td>TOTAL</td>
-                            <td>JUMLAH KESELURUHAN</td>
-                            <td class="text-right">{format_rupiah(tot_lra_p)}</td>
-                            <td class="text-right">{format_rupiah(tot_sipper_p)}</td>
-                            <td class="text-right">{format_rupiah(tot_selisih_p)}</td>
-                            <td class="text-center">{total_status_p}</td>
-                        </tr>
-                    </tbody>
-                </table>
-                """
+                table_html = f"<table class='custom-table'><thead><tr><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi LRA (Rp)</th><th class='text-right'>Nilai SIPPER (Rp)</th><th class='text-right'>Selisih (Rp)</th><th class='text-center'>Status</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td class='text-right'>{format_rupiah(tot_lra_p)}</td><td class='text-right'>{format_rupiah(tot_sipper_p)}</td><td class='text-right'>{format_rupiah(tot_selisih_p)}</td><td class='text-center'>{tot_status_p}</td></tr></tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
 
-                # KETERANGAN REKON PERSEDIAAN
                 if round(tot_selisih_p, 2) == 0:
-                    st.markdown(f"""
-                    <div class="status-card-match">
-                        <h4 style="color: #065F46; margin:0;">✅ STATUS: COCOK DENGAN LRA</h4>
-                        <p style="color: #047857; margin: 4px 0 0 0; font-size:14px;">
-                            Total Realisasi LRA <b>({format_rupiah(tot_lra_p)})</b> sama persis dengan Total Pencatatan SIPPER <b>({format_rupiah(tot_sipper_p)})</b>. Tidak ada selisih.
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div class='status-card-match'><h4 style='color: #065F46; margin:0;'>✅ STATUS: COCOK DENGAN LRA</h4><p style='color: #047857; margin: 4px 0 0 0; font-size:14px;'>Total Realisasi LRA <b>({format_rupiah(tot_lra_p)})</b> sama persis dengan SIPPER <b>({format_rupiah(tot_sipper_p)})</b>. Tidak ada selisih.</p></div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""
-                    <div class="status-card-diff">
-                        <h4 style="color: #991B1B; margin:0;">⚠️ STATUS: TERDAPAT SELISIH REKONSILIASI</h4>
-                        <p style="color: #B91C1C; margin: 4px 0 0 0; font-size:14px;">
-                            Ditemukan selisih sebesar <b>{format_rupiah(tot_selisih_p)}</b> antara LRA ({format_rupiah(tot_lra_p)}) dan SIPPER ({format_rupiah(tot_sipper_p)}).
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div class='status-card-diff'><h4 style='color: #991B1B; margin:0;'>⚠️ STATUS: TERDAPAT SELISIH REKONSILIASI</h4><p style='color: #B91C1C; margin: 4px 0 0 0; font-size:14px;'>Ditemukan selisih sebesar <b>{format_rupiah(tot_selisih_p)}</b> antara LRA ({format_rupiah(tot_lra_p)}) dan SIPPER ({format_rupiah(tot_sipper_p)}).</p></div>", unsafe_allow_html=True)
             else:
                 tot_lra_p = rekap_p['Nilai Realisasi'].sum()
-                rows_html = ""
-                for _, row in rekap_p.iterrows():
-                    rows_html += f"""
-                    <tr>
-                        <td>{row['Kode Rekening']}</td>
-                        <td>{row['Nama Rekening']}</td>
-                        <td class="text-right">{format_rupiah(row['Nilai Realisasi'])}</td>
-                    </tr>
-                    """
-                
-                table_html = f"""
-                <table class="custom-table">
-                    <thead>
-                        <tr>
-                            <th>Kode Rekening</th>
-                            <th>Nama Rekening</th>
-                            <th class="text-right">Realisasi (Rp)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                        <tr class="total-row">
-                            <td>TOTAL</td>
-                            <td>JUMLAH KESELURUHAN</td>
-                            <td class="text-right">{format_rupiah(tot_lra_p)}</td>
-                        </tr>
-                    </tbody>
-                </table>
-                """
+                rows_html = "".join([
+                    f"<tr><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td></tr>"
+                    for _, r in rekap_p.iterrows()
+                ])
+                table_html = f"<table class='custom-table'><thead><tr><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi (Rp)</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td class='text-right'>{format_rupiah(tot_lra_p)}</td></tr></tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file SIPPER di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
@@ -358,109 +266,26 @@ if f_lra:
                 tot_aset_m = rekap_m['Nilai Aset'].sum()
                 tot_selisih_m = rekap_m['Selisih'].sum()
 
-                rows_html = ""
-                for _, row in rekap_m.iterrows():
-                    rows_html += f"""
-                    <tr>
-                        <td>{row['Kode Kategori']}</td>
-                        <td>{row['Uraian Kategori']}</td>
-                        <td>{row['Kode Rekening']}</td>
-                        <td>{row['Nama Rekening']}</td>
-                        <td class="text-right">{format_rupiah(row['Nilai Realisasi'])}</td>
-                        <td class="text-right">{format_rupiah(row['Nilai Aset'])}</td>
-                        <td class="text-right">{format_rupiah(row['Selisih'])}</td>
-                        <td class="text-center">{row['Status']}</td>
-                    </tr>
-                    """
+                rows_html = "".join([
+                    f"<tr><td>{r['Kode Kategori']}</td><td>{r['Uraian Kategori']}</td><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td><td class='text-right'>{format_rupiah(r['Nilai Aset'])}</td><td class='text-right'>{format_rupiah(r['Selisih'])}</td><td class='text-center'>{r['Status']}</td></tr>"
+                    for _, r in rekap_m.iterrows()
+                ])
+                tot_status_m = '✅ COCOK' if round(tot_selisih_m, 2) == 0 else '❌ SELISIH'
                 
-                total_status_m = '✅ COCOK' if round(tot_selisih_m, 2) == 0 else '❌ SELISIH'
-                table_html = f"""
-                <table class="custom-table">
-                    <thead>
-                        <tr>
-                            <th>Kode Kategori</th>
-                            <th>Uraian Kategori</th>
-                            <th>Kode Rekening</th>
-                            <th>Nama Rekening</th>
-                            <th class="text-right">Realisasi LRA (Rp)</th>
-                            <th class="text-right">Nilai Aplikasi Aset (Rp)</th>
-                            <th class="text-right">Selisih (Rp)</th>
-                            <th class="text-center">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                        <tr class="total-row">
-                            <td>TOTAL</td>
-                            <td>JUMLAH KESELURUHAN</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td class="text-right">{format_rupiah(tot_lra_m)}</td>
-                            <td class="text-right">{format_rupiah(tot_aset_m)}</td>
-                            <td class="text-right">{format_rupiah(tot_selisih_m)}</td>
-                            <td class="text-center">{total_status_m}</td>
-                        </tr>
-                    </tbody>
-                </table>
-                """
+                table_html = f"<table class='custom-table'><thead><tr><th>Kode Kategori</th><th>Uraian Kategori</th><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi LRA (Rp)</th><th class='text-right'>Nilai Aplikasi Aset (Rp)</th><th class='text-right'>Selisih (Rp)</th><th class='text-center'>Status</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td>-</td><td>-</td><td class='text-right'>{format_rupiah(tot_lra_m)}</td><td class='text-right'>{format_rupiah(tot_aset_m)}</td><td class='text-right'>{format_rupiah(tot_selisih_m)}</td><td class='text-center'>{tot_status_m}</td></tr></tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
 
-                # KETERANGAN REKON BELANJA MODAL
                 if round(tot_selisih_m, 2) == 0:
-                    st.markdown(f"""
-                    <div class="status-card-match">
-                        <h4 style="color: #065F46; margin:0;">✅ STATUS: COCOK DENGAN LRA</h4>
-                        <p style="color: #047857; margin: 4px 0 0 0; font-size:14px;">
-                            Total Belanja Modal LRA <b>({format_rupiah(tot_lra_m)})</b> sama persis dengan Total Pencatatan Aplikasi Aset <b>({format_rupiah(tot_aset_m)})</b>. Tidak ada selisih.
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div class='status-card-match'><h4 style='color: #065F46; margin:0;'>✅ STATUS: COCOK DENGAN LRA</h4><p style='color: #047857; margin: 4px 0 0 0; font-size:14px;'>Total Belanja Modal LRA <b>({format_rupiah(tot_lra_m)})</b> sama persis dengan Aplikasi Aset <b>({format_rupiah(tot_aset_m)})</b>. Tidak ada selisih.</p></div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""
-                    <div class="status-card-diff">
-                        <h4 style="color: #991B1B; margin:0;">⚠️ STATUS: TERDAPAT SELISIH REKONSILIASI</h4>
-                        <p style="color: #B91C1C; margin: 4px 0 0 0; font-size:14px;">
-                            Ditemukan selisih sebesar <b>{format_rupiah(tot_selisih_m)}</b> antara Belanja Modal LRA ({format_rupiah(tot_lra_m)}) dan Aplikasi Aset ({format_rupiah(tot_aset_m)}).
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div class='status-card-diff'><h4 style='color: #991B1B; margin:0;'>⚠️ STATUS: TERDAPAT SELISIH REKONSILIASI</h4><p style='color: #B91C1C; margin: 4px 0 0 0; font-size:14px;'>Ditemukan selisih sebesar <b>{format_rupiah(tot_selisih_m)}</b> antara Belanja Modal LRA ({format_rupiah(tot_lra_m)}) dan Aplikasi Aset ({format_rupiah(tot_aset_m)}).</p></div>", unsafe_allow_html=True)
             else:
                 tot_lra_m = rekap_m['Nilai Realisasi'].sum()
-                rows_html = ""
-                for _, row in rekap_m.iterrows():
-                    rows_html += f"""
-                    <tr>
-                        <td>{row['Kode Kategori']}</td>
-                        <td>{row['Uraian Kategori']}</td>
-                        <td>{row['Kode Rekening']}</td>
-                        <td>{row['Nama Rekening']}</td>
-                        <td class="text-right">{format_rupiah(row['Nilai Realisasi'])}</td>
-                    </tr>
-                    """
-                
-                table_html = f"""
-                <table class="custom-table">
-                    <thead>
-                        <tr>
-                            <th>Kode Kategori</th>
-                            <th>Uraian Kategori</th>
-                            <th>Kode Rekening</th>
-                            <th>Nama Rekening</th>
-                            <th class="text-right">Realisasi (Rp)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                        <tr class="total-row">
-                            <td>TOTAL</td>
-                            <td>JUMLAH KESELURUHAN</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td class="text-right">{format_rupiah(tot_lra_m)}</td>
-                        </tr>
-                    </tbody>
-                </table>
-                """
+                rows_html = "".join([
+                    f"<tr><td>{r['Kode Kategori']}</td><td>{r['Uraian Kategori']}</td><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td></tr>"
+                    for _, r in rekap_m.iterrows()
+                ])
+                table_html = f"<table class='custom-table'><thead><tr><th>Kode Kategori</th><th>Uraian Kategori</th><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi (Rp)</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td>-</td><td>-</td><td class='text-right'>{format_rupiah(tot_lra_m)}</td></tr></tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file Pengadaan Aset di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
