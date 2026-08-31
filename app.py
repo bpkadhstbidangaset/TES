@@ -21,6 +21,14 @@ st.markdown("""
     }
     .metric-title { font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; }
     .metric-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .status-card-match {
+        background-color: #ECFDF5; border-left: 5px solid #10B981;
+        padding: 14px 18px; border-radius: 8px; margin-top: 10px; margin-bottom: 20px;
+    }
+    .status-card-diff {
+        background-color: #FEF2F2; border-left: 5px solid #EF4444;
+        padding: 14px 18px; border-radius: 8px; margin-top: 10px; margin-bottom: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -145,7 +153,6 @@ if f_lra:
 
     # ================= TAB 1: PERSEDIAAN =================
     with tab1:
-        # Box Upload Pembanding SIPPER
         st.markdown("##### 📥 Pembanding Data SIPPER (Opsional)")
         f_sipper = st.file_uploader("Upload Data Aplikasi SIPPER (.xlsx)", type=["xlsx"], key="up_sipper")
         
@@ -153,7 +160,6 @@ if f_lra:
         if f_sipper:
             try:
                 raw_sipper = pd.read_excel(f_sipper, header=None)
-                # Ambil baris data (mulai index 11: col 5=Kode, col 7=Nilai)
                 rows_s = raw_sipper.iloc[11:].copy()
                 df_s = rows_s[[5, 7]].dropna(subset=[5]).copy()
                 df_s.columns = ['Kode Rekening', 'Nilai SIPPER']
@@ -169,52 +175,94 @@ if f_lra:
         if not df_pers_filtered.empty:
             rekap_p = df_pers_filtered.groupby(['Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
             
-            # Jika ada SIPPER, gabungkan untuk cari selisih
             if df_sipper_rekap is not None:
                 rekap_p = pd.merge(rekap_p, df_sipper_rekap, on='Kode Rekening', how='outer').fillna(0)
                 rekap_p['Nama Rekening'] = rekap_p['Nama Rekening'].replace(0, 'Dari Data SIPPER')
                 rekap_p['Selisih'] = rekap_p['Nilai Realisasi'] - rekap_p['Nilai SIPPER']
                 rekap_p['Status'] = rekap_p['Selisih'].apply(lambda x: '✅ COCOK' if round(x, 2) == 0 else '❌ SELISIH')
                 
-                # Baris TOTAL
+                tot_lra_p = rekap_p['Nilai Realisasi'].sum()
+                tot_sipper_p = rekap_p['Nilai SIPPER'].sum()
+                tot_selisih_p = rekap_p['Selisih'].sum()
+
+                # Baris TOTAL Tebal
                 baris_tot = pd.DataFrame([{
-                    'Kode Rekening': 'TOTAL',
-                    'Nama Rekening': 'JUMLAH KESELURUHAN',
-                    'Nilai Realisasi': rekap_p['Nilai Realisasi'].sum(),
-                    'Nilai SIPPER': rekap_p['Nilai SIPPER'].sum(),
-                    'Selisih': rekap_p['Selisih'].sum(),
-                    'Status': '✅ COCOK' if round(rekap_p['Selisih'].sum(), 2) == 0 else '❌ SELISIH'
+                    'Kode Rekening': '**TOTAL**',
+                    'Nama Rekening': '**JUMLAH KESELURUHAN**',
+                    'Realisasi LRA (Rp)': f"**{format_rupiah(tot_lra_p)}**",
+                    'Nilai SIPPER (Rp)': f"**{format_rupiah(tot_sipper_p)}**",
+                    'Selisih (Rp)': f"**{format_rupiah(tot_selisih_p)}**",
+                    'Status': '**✅ COCOK**' if round(tot_selisih_p, 2) == 0 else '**❌ SELISIH**'
                 }])
-                tampil_p = pd.concat([rekap_p, baris_tot], ignore_index=True)
+
+                tampil_p = rekap_p.copy()
                 tampil_p['Realisasi LRA (Rp)'] = tampil_p['Nilai Realisasi'].apply(format_rupiah)
                 tampil_p['Nilai SIPPER (Rp)'] = tampil_p['Nilai SIPPER'].apply(format_rupiah)
                 tampil_p['Selisih (Rp)'] = tampil_p['Selisih'].apply(format_rupiah)
                 
-                st.dataframe(
+                tampil_p_final = pd.concat([
                     tampil_p[['Kode Rekening', 'Nama Rekening', 'Realisasi LRA (Rp)', 'Nilai SIPPER (Rp)', 'Selisih (Rp)', 'Status']],
-                    use_container_width=True, hide_index=True
-                )
+                    baris_tot
+                ], ignore_index=True)
+
+                st.dataframe(tampil_p_final, use_container_width=True, hide_index=True)
+
+                # KETERANGAN KESIMPULAN REKON PERSEDIAAN
+                if round(tot_selisih_p, 2) == 0:
+                    st.markdown(f"""
+                    <div class="status-card-match">
+                        <h4 style="color: #065F46; margin:0;">✅ STATUS: COCOK DENGAN LRA</h4>
+                        <p style="color: #047857; margin: 4px 0 0 0; font-size:14px;">
+                            Total Realisasi LRA <b>({format_rupiah(tot_lra_p)})</b> sama persis dengan Total Pencatatan SIPPER <b>({format_rupiah(tot_sipper_p)})</b>. Tidak ada selisih.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="status-card-diff">
+                        <h4 style="color: #991B1B; margin:0;">⚠️ STATUS: TERDAPAT SELISIH REKONSILIASI</h4>
+                        <p style="color: #B91C1C; margin: 4px 0 0 0; font-size:14px;">
+                            Ditemukan selisih sebesar <b>{format_rupiah(tot_selisih_p)}</b> antara LRA ({format_rupiah(tot_lra_p)}) dan SIPPER ({format_rupiah(tot_sipper_p)}). Silakan periksa akun yang bertanda ❌ SELISIH di atas.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
+                tot_lra_p = rekap_p['Nilai Realisasi'].sum()
                 baris_tot = pd.DataFrame([{
-                    'Kode Rekening': 'TOTAL',
-                    'Nama Rekening': 'JUMLAH KESELURUHAN',
-                    'Nilai Realisasi': rekap_p['Nilai Realisasi'].sum()
+                    'Kode Rekening': '**TOTAL**',
+                    'Nama Rekening': '**JUMLAH KESELURUHAN**',
+                    'Realisasi (Rp)': f"**{format_rupiah(tot_lra_p)}**"
                 }])
-                tampil_p = pd.concat([rekap_p, baris_tot], ignore_index=True)
+                tampil_p = rekap_p.copy()
                 tampil_p['Realisasi (Rp)'] = tampil_p['Nilai Realisasi'].apply(format_rupiah)
-                st.dataframe(tampil_p[['Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']], use_container_width=True, hide_index=True)
+                tampil_p_final = pd.concat([tampil_p[['Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']], baris_tot], ignore_index=True)
+                st.dataframe(tampil_p_final, use_container_width=True, hide_index=True)
+                st.info("💡 *Upload file SIPPER di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_p = df_pers_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_pers_filtered.columns]].copy()
+            
+            # Total Rincian Tebal di Bawah
+            tot_rinci_p = df_pers_filtered['Nilai Realisasi'].sum()
+            baris_tot_rinci_p = pd.DataFrame([{
+                'Kode Sub Kegiatan': '**TOTAL**',
+                'Nama Sub Kegiatan': '**JUMLAH REALISASI**',
+                'Kode Rekening': '-',
+                'Nama Rekening': '-',
+                'Nomor Dokumen': '-',
+                'Tanggal Dokumen': '-',
+                'Keterangan Dokumen': '-',
+                'Nilai Realisasi': f"**{format_rupiah(tot_rinci_p)}**"
+            }])
             df_detail_p['Nilai Realisasi'] = df_detail_p['Nilai Realisasi'].apply(format_rupiah)
-            st.dataframe(df_detail_p, use_container_width=True, hide_index=True)
+            df_detail_p_final = pd.concat([df_detail_p, baris_tot_rinci_p], ignore_index=True)
+            st.dataframe(df_detail_p_final, use_container_width=True, hide_index=True)
         else:
             st.warning("Tidak ditemukan data persediaan untuk SKPD ini.")
 
     # ================= TAB 2: BELANJA MODAL =================
     with tab2:
-        # Box Upload Pembanding Aplikasi Modal / Aset
         st.markdown("##### 📥 Pembanding Data Aplikasi Belanja Modal / Aset (Opsional)")
         f_app_modal = st.file_uploader("Upload Data Rincian Pengadaan Aset (.xlsx)", type=["xlsx"], key="up_modal")
         
@@ -222,7 +270,6 @@ if f_lra:
         if f_app_modal:
             try:
                 raw_m = pd.read_excel(f_app_modal, header=None)
-                # Ambil baris kode rekening modal 5.2 (col 0=Kode, col 3=Nilai Aset)
                 rows_m = raw_m[raw_m[0].astype(str).str.startswith('5.2')].copy()
                 df_m = rows_m[[0, 3]].dropna(subset=[0]).copy()
                 df_m.columns = ['Kode Rekening', 'Nilai Aset']
@@ -238,7 +285,6 @@ if f_lra:
         if not df_modal_filtered.empty:
             rekap_m = df_modal_filtered.groupby(['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
             
-            # Jika ada data pembanding aplikasi modal
             if df_modal_app_rekap is not None:
                 rekap_m = pd.merge(rekap_m, df_modal_app_rekap, on='Kode Rekening', how='outer').fillna(0)
                 rekap_m['Kode Kategori'] = rekap_m['Kode Kategori'].replace(0, '-')
@@ -247,45 +293,90 @@ if f_lra:
                 rekap_m['Selisih'] = rekap_m['Nilai Realisasi'] - rekap_m['Nilai Aset']
                 rekap_m['Status'] = rekap_m['Selisih'].apply(lambda x: '✅ COCOK' if round(x, 2) == 0 else '❌ SELISIH')
 
+                tot_lra_m = rekap_m['Nilai Realisasi'].sum()
+                tot_aset_m = rekap_m['Nilai Aset'].sum()
+                tot_selisih_m = rekap_m['Selisih'].sum()
+
+                # Baris TOTAL Tebal
                 baris_tot_m = pd.DataFrame([{
-                    'Kode Kategori': 'TOTAL',
-                    'Uraian Kategori': 'JUMLAH KESELURUHAN',
+                    'Kode Kategori': '**TOTAL**',
+                    'Uraian Kategori': '**JUMLAH KESELURUHAN**',
                     'Kode Rekening': '-',
                     'Nama Rekening': '-',
-                    'Nilai Realisasi': rekap_m['Nilai Realisasi'].sum(),
-                    'Nilai Aset': rekap_m['Nilai Aset'].sum(),
-                    'Selisih': rekap_m['Selisih'].sum(),
-                    'Status': '✅ COCOK' if round(rekap_m['Selisih'].sum(), 2) == 0 else '❌ SELISIH'
+                    'Realisasi LRA (Rp)': f"**{format_rupiah(tot_lra_m)}**",
+                    'Nilai Aplikasi Aset (Rp)': f"**{format_rupiah(tot_aset_m)}**",
+                    'Selisih (Rp)': f"**{format_rupiah(tot_selisih_m)}**",
+                    'Status': '**✅ COCOK**' if round(tot_selisih_m, 2) == 0 else '**❌ SELISIH**'
                 }])
-                tampil_m = pd.concat([rekap_m, baris_tot_m], ignore_index=True)
+
+                tampil_m = rekap_m.copy()
                 tampil_m['Realisasi LRA (Rp)'] = tampil_m['Nilai Realisasi'].apply(format_rupiah)
                 tampil_m['Nilai Aplikasi Aset (Rp)'] = tampil_m['Nilai Aset'].apply(format_rupiah)
                 tampil_m['Selisih (Rp)'] = tampil_m['Selisih'].apply(format_rupiah)
 
-                st.dataframe(
+                tampil_m_final = pd.concat([
                     tampil_m[['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Realisasi LRA (Rp)', 'Nilai Aplikasi Aset (Rp)', 'Selisih (Rp)', 'Status']],
-                    use_container_width=True, hide_index=True
-                )
+                    baris_tot_m
+                ], ignore_index=True)
+
+                st.dataframe(tampil_m_final, use_container_width=True, hide_index=True)
+
+                # KETERANGAN KESIMPULAN REKON MODAL
+                if round(tot_selisih_m, 2) == 0:
+                    st.markdown(f"""
+                    <div class="status-card-match">
+                        <h4 style="color: #065F46; margin:0;">✅ STATUS: COCOK DENGAN LRA</h4>
+                        <p style="color: #047857; margin: 4px 0 0 0; font-size:14px;">
+                            Total Belanja Modal LRA <b>({format_rupiah(tot_lra_m)})</b> sama persis dengan Total Pencatatan Aplikasi Aset <b>({format_rupiah(tot_aset_m)})</b>. Tidak ada selisih.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="status-card-diff">
+                        <h4 style="color: #991B1B; margin:0;">⚠️ STATUS: TERDAPAT SELISIH REKONSILIASI</h4>
+                        <p style="color: #B91C1C; margin: 4px 0 0 0; font-size:14px;">
+                            Ditemukan selisih sebesar <b>{format_rupiah(tot_selisih_m)}</b> antara Belanja Modal LRA ({format_rupiah(tot_lra_m)}) dan Aplikasi Aset ({format_rupiah(tot_aset_m)}). Silakan periksa akun yang bertanda ❌ SELISIH di atas.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
+                tot_lra_m = rekap_m['Nilai Realisasi'].sum()
                 baris_tot_m = pd.DataFrame([{
-                    'Kode Kategori': 'TOTAL',
-                    'Uraian Kategori': 'JUMLAH KESELURUHAN',
+                    'Kode Kategori': '**TOTAL**',
+                    'Uraian Kategori': '**JUMLAH KESELURUHAN**',
                     'Kode Rekening': '-',
                     'Nama Rekening': '-',
-                    'Nilai Realisasi': rekap_m['Nilai Realisasi'].sum()
+                    'Realisasi (Rp)': f"**{format_rupiah(tot_lra_m)}**"
                 }])
-                tampil_m = pd.concat([rekap_m, baris_tot_m], ignore_index=True)
+                tampil_m = rekap_m.copy()
                 tampil_m['Realisasi (Rp)'] = tampil_m['Nilai Realisasi'].apply(format_rupiah)
-                st.dataframe(
+                tampil_m_final = pd.concat([
                     tampil_m[['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']],
-                    use_container_width=True, hide_index=True
-                )
+                    baris_tot_m
+                ], ignore_index=True)
+                st.dataframe(tampil_m_final, use_container_width=True, hide_index=True)
+                st.info("💡 *Upload file Pengadaan Aset di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_m = df_modal_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_modal_filtered.columns]].copy()
+            
+            # Total Rincian Tebal di Bawah
+            tot_rinci_m = df_modal_filtered['Nilai Realisasi'].sum()
+            baris_tot_rinci_m = pd.DataFrame([{
+                'Kode Sub Kegiatan': '**TOTAL**',
+                'Nama Sub Kegiatan': '**JUMLAH REALISASI**',
+                'Kode Rekening': '-',
+                'Nama Rekening': '-',
+                'Nomor Dokumen': '-',
+                'Tanggal Dokumen': '-',
+                'Keterangan Dokumen': '-',
+                'Nilai Realisasi': f"**{format_rupiah(tot_rinci_m)}**"
+            }])
             df_detail_m['Nilai Realisasi'] = df_detail_m['Nilai Realisasi'].apply(format_rupiah)
-            st.dataframe(df_detail_m, use_container_width=True, hide_index=True)
+            df_detail_m_final = pd.concat([df_detail_m, baris_tot_rinci_m], ignore_index=True)
+            st.dataframe(df_detail_m_final, use_container_width=True, hide_index=True)
         else:
             st.warning("Tidak ditemukan data belanja modal untuk SKPD ini.")
 
