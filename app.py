@@ -10,57 +10,124 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS Modern dengan Bubble & Card Container
 st.markdown("""
 <style>
     .main-header { font-size: 26px; font-weight: 700; color: #1E3A8A; margin-bottom: 2px; }
     .sub-header { font-size: 14px; color: #6B7280; margin-bottom: 20px; }
+    
     .metric-box {
         color: white; padding: 16px 20px; border-radius: 12px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 15px;
     }
     .metric-title { font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; }
     .metric-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    
     .status-card-match {
         background-color: #ECFDF5; border-left: 5px solid #10B981;
-        padding: 14px 18px; border-radius: 8px; margin-top: 10px; margin-bottom: 20px;
+        padding: 14px 18px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px;
     }
     .status-card-diff {
         background-color: #FEF2F2; border-left: 5px solid #EF4444;
-        padding: 14px 18px; border-radius: 8px; margin-top: 10px; margin-bottom: 20px;
+        padding: 14px 18px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px;
     }
+    
+    /* Container Box / Bubble Table */
+    .table-container {
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        padding: 12px 16px;
+        margin-top: 10px;
+        margin-bottom: 20px;
+        overflow-x: auto;
+    }
+    
+    /* Table Styling */
     table.custom-table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 10px;
-        margin-bottom: 20px;
-        font-size: 14px;
+        font-size: 13.5px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     table.custom-table th {
-        background-color: #F1F5F9;
+        background-color: #F8FAFC;
         color: #1E293B;
         font-weight: 700;
         text-align: left;
-        padding: 10px 12px;
-        border: 1px solid #CBD5E1;
+        padding: 12px 10px;
+        border-bottom: 2px solid #CBD5E1;
+        white-space: nowrap;
     }
     table.custom-table td {
-        padding: 9px 12px;
-        border: 1px solid #E2E8F0;
+        padding: 10px 10px;
+        border-bottom: 1px solid #F1F5F9;
         color: #334155;
+        vertical-align: middle;
     }
-    table.custom-table tr:nth-child(even) {
+    table.custom-table tr:hover {
         background-color: #F8FAFC;
     }
     table.custom-table tr.total-row td {
-        background-color: #E2E8F0 !important;
+        background-color: #F1F5F9 !important;
         font-weight: 800 !important;
         color: #0F172A !important;
         border-top: 2px solid #94A3B8 !important;
         border-bottom: 2px solid #94A3B8 !important;
     }
-    .text-right { text-align: right; }
-    .text-center { text-align: center; }
+    
+    /* Alignment & Formats */
+    .text-right { 
+        text-align: right; 
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+    .text-center { 
+        text-align: center; 
+        white-space: nowrap;
+    }
+    .text-code {
+        white-space: nowrap;
+        font-family: monospace;
+        font-size: 13px;
+        color: #475569;
+    }
+    
+    /* Kolom Selisih Berwarna */
+    .diff-match {
+        color: #059669 !important;
+        font-weight: 600;
+    }
+    .diff-alert {
+        color: #DC2626 !important;
+        font-weight: 700;
+        background-color: #FEF2F2;
+        border-radius: 6px;
+        padding: 3px 6px;
+    }
+    
+    /* Bubble Badge Status */
+    .badge-pill-match {
+        background-color: #D1FAE5;
+        color: #065F46;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        font-weight: 600;
+        font-size: 12px;
+        display: inline-block;
+        border: 1px solid #A7F3D0;
+    }
+    .badge-pill-diff {
+        background-color: #FEE2E2;
+        color: #991B1B;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        font-weight: 700;
+        font-size: 12px;
+        display: inline-block;
+        border: 1px solid #FECACA;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -193,19 +260,57 @@ if f_lra:
                 rekap_p = pd.merge(rekap_p, df_sipper_rekap, on='Kode Rekening', how='outer').fillna(0)
                 rekap_p['Nama Rekening'] = rekap_p['Nama Rekening'].replace(0, 'Dari Data SIPPER')
                 rekap_p['Selisih'] = rekap_p['Nilai Realisasi'] - rekap_p['Nilai SIPPER']
-                rekap_p['Status'] = rekap_p['Selisih'].apply(lambda x: '✅ COCOK' if round(x, 2) == 0 else '❌ SELISIH')
                 
                 tot_lra_p = rekap_p['Nilai Realisasi'].sum()
                 tot_sipper_p = rekap_p['Nilai SIPPER'].sum()
                 tot_selisih_p = rekap_p['Selisih'].sum()
 
-                rows_html = "".join([
-                    f"<tr><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td><td class='text-right'>{format_rupiah(r['Nilai SIPPER'])}</td><td class='text-right'>{format_rupiah(r['Selisih'])}</td><td class='text-center'>{r['Status']}</td></tr>"
-                    for _, r in rekap_p.iterrows()
-                ])
-                tot_status_p = '✅ COCOK' if round(tot_selisih_p, 2) == 0 else '❌ SELISIH'
-                
-                table_html = f"<table class='custom-table'><thead><tr><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi LRA (Rp)</th><th class='text-right'>Nilai SIPPER (Rp)</th><th class='text-right'>Selisih (Rp)</th><th class='text-center'>Status</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td class='text-right'>{format_rupiah(tot_lra_p)}</td><td class='text-right'>{format_rupiah(tot_sipper_p)}</td><td class='text-right'>{format_rupiah(tot_selisih_p)}</td><td class='text-center'>{tot_status_p}</td></tr></tbody></table>"
+                rows_html = ""
+                for _, r in rekap_p.iterrows():
+                    is_match = round(r['Selisih'], 2) == 0
+                    diff_class = "diff-match" if is_match else "diff-alert"
+                    status_badge = '<span class="badge-pill-match">✅ COCOK</span>' if is_match else '<span class="badge-pill-diff">❌ SELISIH</span>'
+                    
+                    rows_html += f"""<tr>
+                        <td class='text-code'>{r['Kode Rekening']}</td>
+                        <td>{r['Nama Rekening']}</td>
+                        <td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td>
+                        <td class='text-right'>{format_rupiah(r['Nilai SIPPER'])}</td>
+                        <td class='text-right'><span class='{diff_class}'>{format_rupiah(r['Selisih'])}</span></td>
+                        <td class='text-center'>{status_badge}</td>
+                    </tr>"""
+
+                tot_match = round(tot_selisih_p, 2) == 0
+                tot_diff_class = "diff-match" if tot_match else "diff-alert"
+                tot_status_badge = '<span class="badge-pill-match">✅ COCOK</span>' if tot_match else '<span class="badge-pill-diff">❌ SELISIH</span>'
+
+                table_html = f"""
+                <div class="table-container">
+                    <table class='custom-table'>
+                        <thead>
+                            <tr>
+                                <th style='width: 15%;'>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right' style='width: 14%;'>Realisasi LRA (Rp)</th>
+                                <th class='text-right' style='width: 14%;'>Nilai SIPPER (Rp)</th>
+                                <th class='text-right' style='width: 14%;'>Selisih (Rp)</th>
+                                <th class='text-center' style='width: 10%;'>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows_html}
+                            <tr class='total-row'>
+                                <td>TOTAL</td>
+                                <td>JUMLAH KESELURUHAN</td>
+                                <td class='text-right'>{format_rupiah(tot_lra_p)}</td>
+                                <td class='text-right'>{format_rupiah(tot_sipper_p)}</td>
+                                <td class='text-right'><span class='{tot_diff_class}'>{format_rupiah(tot_selisih_p)}</span></td>
+                                <td class='text-center'>{tot_status_badge}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                """
                 st.markdown(table_html, unsafe_allow_html=True)
 
                 if round(tot_selisih_p, 2) == 0:
@@ -215,10 +320,30 @@ if f_lra:
             else:
                 tot_lra_p = rekap_p['Nilai Realisasi'].sum()
                 rows_html = "".join([
-                    f"<tr><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td></tr>"
+                    f"<tr><td class='text-code'>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td></tr>"
                     for _, r in rekap_p.iterrows()
                 ])
-                table_html = f"<table class='custom-table'><thead><tr><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi (Rp)</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td class='text-right'>{format_rupiah(tot_lra_p)}</td></tr></tbody></table>"
+                table_html = f"""
+                <div class="table-container">
+                    <table class='custom-table'>
+                        <thead>
+                            <tr>
+                                <th style='width: 20%;'>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right' style='width: 20%;'>Realisasi (Rp)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows_html}
+                            <tr class='total-row'>
+                                <td>TOTAL</td>
+                                <td>JUMLAH KESELURUHAN</td>
+                                <td class='text-right'>{format_rupiah(tot_lra_p)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                """
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file SIPPER di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
@@ -260,19 +385,63 @@ if f_lra:
                 rekap_m['Uraian Kategori'] = rekap_m['Uraian Kategori'].replace(0, '-')
                 rekap_m['Nama Rekening'] = rekap_m['Nama Rekening'].replace(0, 'Dari Data Aplikasi Aset')
                 rekap_m['Selisih'] = rekap_m['Nilai Realisasi'] - rekap_m['Nilai Aset']
-                rekap_m['Status'] = rekap_m['Selisih'].apply(lambda x: '✅ COCOK' if round(x, 2) == 0 else '❌ SELISIH')
 
                 tot_lra_m = rekap_m['Nilai Realisasi'].sum()
                 tot_aset_m = rekap_m['Nilai Aset'].sum()
                 tot_selisih_m = rekap_m['Selisih'].sum()
 
-                rows_html = "".join([
-                    f"<tr><td>{r['Kode Kategori']}</td><td>{r['Uraian Kategori']}</td><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td><td class='text-right'>{format_rupiah(r['Nilai Aset'])}</td><td class='text-right'>{format_rupiah(r['Selisih'])}</td><td class='text-center'>{r['Status']}</td></tr>"
-                    for _, r in rekap_m.iterrows()
-                ])
-                tot_status_m = '✅ COCOK' if round(tot_selisih_m, 2) == 0 else '❌ SELISIH'
-                
-                table_html = f"<table class='custom-table'><thead><tr><th>Kode Kategori</th><th>Uraian Kategori</th><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi LRA (Rp)</th><th class='text-right'>Nilai Aplikasi Aset (Rp)</th><th class='text-right'>Selisih (Rp)</th><th class='text-center'>Status</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td>-</td><td>-</td><td class='text-right'>{format_rupiah(tot_lra_m)}</td><td class='text-right'>{format_rupiah(tot_aset_m)}</td><td class='text-right'>{format_rupiah(tot_selisih_m)}</td><td class='text-center'>{tot_status_m}</td></tr></tbody></table>"
+                rows_html = ""
+                for _, r in rekap_m.iterrows():
+                    is_match = round(r['Selisih'], 2) == 0
+                    diff_class = "diff-match" if is_match else "diff-alert"
+                    status_badge = '<span class="badge-pill-match">✅ COCOK</span>' if is_match else '<span class="badge-pill-diff">❌ SELISIH</span>'
+                    
+                    rows_html += f"""<tr>
+                        <td class='text-code'>{r['Kode Kategori']}</td>
+                        <td>{r['Uraian Kategori']}</td>
+                        <td class='text-code'>{r['Kode Rekening']}</td>
+                        <td>{r['Nama Rekening']}</td>
+                        <td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td>
+                        <td class='text-right'>{format_rupiah(r['Nilai Aset'])}</td>
+                        <td class='text-right'><span class='{diff_class}'>{format_rupiah(r['Selisih'])}</span></td>
+                        <td class='text-center'>{status_badge}</td>
+                    </tr>"""
+
+                tot_match_m = round(tot_selisih_m, 2) == 0
+                tot_diff_class_m = "diff-match" if tot_match_m else "diff-alert"
+                tot_status_badge_m = '<span class="badge-pill-match">✅ COCOK</span>' if tot_match_m else '<span class="badge-pill-diff">❌ SELISIH</span>'
+
+                table_html = f"""
+                <div class="table-container">
+                    <table class='custom-table'>
+                        <thead>
+                            <tr>
+                                <th style='width: 12%;'>Kode Kategori</th>
+                                <th style='width: 15%;'>Uraian Kategori</th>
+                                <th style='width: 13%;'>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right' style='width: 13%;'>Realisasi LRA (Rp)</th>
+                                <th class='text-right' style='width: 13%;'>Nilai Aplikasi Aset (Rp)</th>
+                                <th class='text-right' style='width: 11%;'>Selisih (Rp)</th>
+                                <th class='text-center' style='width: 8%;'>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows_html}
+                            <tr class='total-row'>
+                                <td>TOTAL</td>
+                                <td>JUMLAH KESELURUHAN</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td class='text-right'>{format_rupiah(tot_lra_m)}</td>
+                                <td class='text-right'>{format_rupiah(tot_aset_m)}</td>
+                                <td class='text-right'><span class='{tot_diff_class_m}'>{format_rupiah(tot_selisih_m)}</span></td>
+                                <td class='text-center'>{tot_status_badge_m}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                """
                 st.markdown(table_html, unsafe_allow_html=True)
 
                 if round(tot_selisih_m, 2) == 0:
@@ -282,10 +451,34 @@ if f_lra:
             else:
                 tot_lra_m = rekap_m['Nilai Realisasi'].sum()
                 rows_html = "".join([
-                    f"<tr><td>{r['Kode Kategori']}</td><td>{r['Uraian Kategori']}</td><td>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td></tr>"
+                    f"<tr><td class='text-code'>{r['Kode Kategori']}</td><td>{r['Uraian Kategori']}</td><td class='text-code'>{r['Kode Rekening']}</td><td>{r['Nama Rekening']}</td><td class='text-right'>{format_rupiah(r['Nilai Realisasi'])}</td></tr>"
                     for _, r in rekap_m.iterrows()
                 ])
-                table_html = f"<table class='custom-table'><thead><tr><th>Kode Kategori</th><th>Uraian Kategori</th><th>Kode Rekening</th><th>Nama Rekening</th><th class='text-right'>Realisasi (Rp)</th></tr></thead><tbody>{rows_html}<tr class='total-row'><td>TOTAL</td><td>JUMLAH KESELURUHAN</td><td>-</td><td>-</td><td class='text-right'>{format_rupiah(tot_lra_m)}</td></tr></tbody></table>"
+                table_html = f"""
+                <div class="table-container">
+                    <table class='custom-table'>
+                        <thead>
+                            <tr>
+                                <th style='width: 14%;'>Kode Kategori</th>
+                                <th style='width: 20%;'>Uraian Kategori</th>
+                                <th style='width: 16%;'>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right' style='width: 18%;'>Realisasi (Rp)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows_html}
+                            <tr class='total-row'>
+                                <td>TOTAL</td>
+                                <td>JUMLAH KESELURUHAN</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td class='text-right'>{format_rupiah(tot_lra_m)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                """
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file Pengadaan Aset di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
