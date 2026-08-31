@@ -29,7 +29,7 @@ def format_rupiah(val):
         return "Rp 0"
     return f"Rp {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# 8 Kolom Pilihan Sesuai Permintaan
+# 8 Kolom Pilihan
 KOLOM_DETAIL_PILIHAN = [
     'Kode Sub Kegiatan',
     'Nama Sub Kegiatan',
@@ -54,15 +54,12 @@ def load_master_rak():
     df_p_raw = pd.read_excel(file_persediaan, header=None).iloc[2:]
     rek_persediaan = set(df_p_raw[1].dropna().astype(str).str.strip()) - {'-', 'KODE REKENING'}
 
-    # 2. Master Belanja Modal (HANYA KODE REKENING AWALAN 5.2)
+    # 2. Master Belanja Modal (Akun 5.2)
     df_m_raw = pd.read_excel(file_modal, header=None).iloc[1:]
     df_m_raw.columns = ['Kode Kategori', 'Uraian Kategori', 'Uraian Rekening', 'Kode Rekening']
     df_m_clean = df_m_raw.dropna(subset=['Kode Rekening']).copy()
     df_m_clean['Kode Rekening'] = df_m_clean['Kode Rekening'].astype(str).str.strip()
-    
-    # FILTER: HANYA BELANJA MODAL (5.2...)
     df_m_clean = df_m_clean[df_m_clean['Kode Rekening'].str.startswith('5.2')]
-    
     df_m_map = df_m_clean[['Kode Rekening', 'Kode Kategori', 'Uraian Kategori']].drop_duplicates('Kode Rekening')
 
     return rek_persediaan, df_m_map, None
@@ -73,7 +70,7 @@ rek_persediaan, df_modal_map, error_msg = load_master_rak()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135679.png", width=70)
     st.markdown("### **Panel Kontrol**")
-    st.info("📌 **RAK Persediaan dan Belanja Modal Terpasang di sistem** ")
+    st.info("📌 **Master RAK Modal:** Terkunci otomatis (Akun `5.2...`)")
     
     f_lra = st.file_uploader("📥 Upload LRA Realisasi (.xlsx)", type=["xlsx"])
     st.markdown("---")
@@ -88,16 +85,14 @@ if error_msg:
     st.stop()
 
 if f_lra:
-    with st.spinner("Sedang memproses data realisasi..."):
+    with st.spinner("Sedang memproses data realisasi LRA..."):
         # Baca LRA
         df_lra = pd.read_excel(f_lra, sheet_name='Data Realisasi Dokumen', header=4)
         df_lra['Kode Rekening'] = df_lra['Kode Rekening'].astype(str).str.strip()
         df_lra['Nilai Realisasi'] = pd.to_numeric(df_lra['Nilai Realisasi'], errors='coerce').fillna(0)
 
-        # 1. Filter Persediaan
+        # Filter Persediaan & Modal
         df_rekon_pers = df_lra[df_lra['Kode Rekening'].isin(rek_persediaan)].copy()
-
-        # 2. Filter Belanja Modal (Hanya Akun 5.2 yang cocok dengan RAK Modal)
         df_rekon_modal = df_lra[
             (df_lra['Kode Rekening'].str.startswith('5.2')) & 
             (df_lra['Kode Rekening'].isin(df_modal_map['Kode Rekening'].unique()))
@@ -126,14 +121,14 @@ if f_lra:
     with m1:
         st.markdown(f"""
         <div class="metric-box" style="background: linear-gradient(135deg, #0D9488, #14B8A6);">
-            <div class="metric-title">📦 Total Belanja Persediaan</div>
+            <div class="metric-title">📦 Total Belanja Persediaan (LRA)</div>
             <div class="metric-value">{format_rupiah(total_p)}</div>
         </div>
         """, unsafe_allow_html=True)
     with m2:
         st.markdown(f"""
         <div class="metric-box" style="background: linear-gradient(135deg, #4F46E5, #6366F1);">
-            <div class="metric-title">🏢 Total Belanja Modal (Akun 5.2)</div>
+            <div class="metric-title">🏢 Total Belanja Modal (LRA)</div>
             <div class="metric-value">{format_rupiah(total_m)}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -150,60 +145,149 @@ if f_lra:
 
     # ================= TAB 1: PERSEDIAAN =================
     with tab1:
+        # Box Upload Pembanding SIPPER
+        st.markdown("##### 📥 Pembanding Data SIPPER (Opsional)")
+        f_sipper = st.file_uploader("Upload Data Aplikasi SIPPER (.xlsx)", type=["xlsx"], key="up_sipper")
+        
+        df_sipper_rekap = None
+        if f_sipper:
+            try:
+                raw_sipper = pd.read_excel(f_sipper, header=None)
+                # Ambil baris data (mulai index 11: col 5=Kode, col 7=Nilai)
+                rows_s = raw_sipper.iloc[11:].copy()
+                df_s = rows_s[[5, 7]].dropna(subset=[5]).copy()
+                df_s.columns = ['Kode Rekening', 'Nilai SIPPER']
+                df_s['Kode Rekening'] = df_s['Kode Rekening'].astype(str).str.strip()
+                df_s['Nilai SIPPER'] = pd.to_numeric(df_s['Nilai SIPPER'], errors='coerce').fillna(0)
+                df_sipper_rekap = df_s.groupby('Kode Rekening')['Nilai SIPPER'].sum().reset_index()
+                st.success("✅ Data Aplikasi SIPPER berhasil dimuat.")
+            except Exception as e:
+                st.error(f"Format file SIPPER tidak sesuai: {e}")
+
+        st.markdown("---")
         st.subheader("1. Rekapitulasi per Kode Rekening Persediaan")
         if not df_pers_filtered.empty:
             rekap_p = df_pers_filtered.groupby(['Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
-            baris_total_p = pd.DataFrame([{
-                'Kode Rekening': 'TOTAL',
-                'Nama Rekening': 'JUMLAH KESELURUHAN',
-                'Nilai Realisasi': rekap_p['Nilai Realisasi'].sum()
-            }])
-            rekap_p_tampil = pd.concat([rekap_p, baris_total_p], ignore_index=True)
-            rekap_p_tampil['Realisasi (Rp)'] = rekap_p_tampil['Nilai Realisasi'].apply(format_rupiah)
             
-            st.dataframe(
-                rekap_p_tampil[['Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']],
-                use_container_width=True,
-                hide_index=True
-            )
+            # Jika ada SIPPER, gabungkan untuk cari selisih
+            if df_sipper_rekap is not None:
+                rekap_p = pd.merge(rekap_p, df_sipper_rekap, on='Kode Rekening', how='outer').fillna(0)
+                rekap_p['Nama Rekening'] = rekap_p['Nama Rekening'].replace(0, 'Dari Data SIPPER')
+                rekap_p['Selisih'] = rekap_p['Nilai Realisasi'] - rekap_p['Nilai SIPPER']
+                rekap_p['Status'] = rekap_p['Selisih'].apply(lambda x: '✅ COCOK' if round(x, 2) == 0 else '❌ SELISIH')
+                
+                # Baris TOTAL
+                baris_tot = pd.DataFrame([{
+                    'Kode Rekening': 'TOTAL',
+                    'Nama Rekening': 'JUMLAH KESELURUHAN',
+                    'Nilai Realisasi': rekap_p['Nilai Realisasi'].sum(),
+                    'Nilai SIPPER': rekap_p['Nilai SIPPER'].sum(),
+                    'Selisih': rekap_p['Selisih'].sum(),
+                    'Status': '✅ COCOK' if round(rekap_p['Selisih'].sum(), 2) == 0 else '❌ SELISIH'
+                }])
+                tampil_p = pd.concat([rekap_p, baris_tot], ignore_index=True)
+                tampil_p['Realisasi LRA (Rp)'] = tampil_p['Nilai Realisasi'].apply(format_rupiah)
+                tampil_p['Nilai SIPPER (Rp)'] = tampil_p['Nilai SIPPER'].apply(format_rupiah)
+                tampil_p['Selisih (Rp)'] = tampil_p['Selisih'].apply(format_rupiah)
+                
+                st.dataframe(
+                    tampil_p[['Kode Rekening', 'Nama Rekening', 'Realisasi LRA (Rp)', 'Nilai SIPPER (Rp)', 'Selisih (Rp)', 'Status']],
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                baris_tot = pd.DataFrame([{
+                    'Kode Rekening': 'TOTAL',
+                    'Nama Rekening': 'JUMLAH KESELURUHAN',
+                    'Nilai Realisasi': rekap_p['Nilai Realisasi'].sum()
+                }])
+                tampil_p = pd.concat([rekap_p, baris_tot], ignore_index=True)
+                tampil_p['Realisasi (Rp)'] = tampil_p['Nilai Realisasi'].apply(format_rupiah)
+                st.dataframe(tampil_p[['Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']], use_container_width=True, hide_index=True)
 
             st.markdown("---")
-            st.subheader("2. Rincian Dokumen Realisasi")
+            st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_p = df_pers_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_pers_filtered.columns]].copy()
             df_detail_p['Nilai Realisasi'] = df_detail_p['Nilai Realisasi'].apply(format_rupiah)
             st.dataframe(df_detail_p, use_container_width=True, hide_index=True)
         else:
-            st.warning("Tidak ditemukan data realisasi persediaan untuk SKPD ini.")
+            st.warning("Tidak ditemukan data persediaan untuk SKPD ini.")
 
-    # ================= TAB 2: BELANJA MODAL (AKUN 5.2) =================
+    # ================= TAB 2: BELANJA MODAL =================
     with tab2:
-        st.subheader("1. Rekapitulasi per Kategori & Rekening Belanja Modal (5.2...)")
+        # Box Upload Pembanding Aplikasi Modal / Aset
+        st.markdown("##### 📥 Pembanding Data Aplikasi Belanja Modal / Aset (Opsional)")
+        f_app_modal = st.file_uploader("Upload Data Rincian Pengadaan Aset (.xlsx)", type=["xlsx"], key="up_modal")
+        
+        df_modal_app_rekap = None
+        if f_app_modal:
+            try:
+                raw_m = pd.read_excel(f_app_modal, header=None)
+                # Ambil baris kode rekening modal 5.2 (col 0=Kode, col 3=Nilai Aset)
+                rows_m = raw_m[raw_m[0].astype(str).str.startswith('5.2')].copy()
+                df_m = rows_m[[0, 3]].dropna(subset=[0]).copy()
+                df_m.columns = ['Kode Rekening', 'Nilai Aset']
+                df_m['Kode Rekening'] = df_m['Kode Rekening'].astype(str).str.strip()
+                df_m['Nilai Aset'] = pd.to_numeric(df_m['Nilai Aset'], errors='coerce').fillna(0)
+                df_modal_app_rekap = df_m.groupby('Kode Rekening')['Nilai Aset'].sum().reset_index()
+                st.success("✅ Data Aplikasi Belanja Modal / Aset berhasil dimuat.")
+            except Exception as e:
+                st.error(f"Format file Belanja Modal tidak sesuai: {e}")
+
+        st.markdown("---")
+        st.subheader("1. Rekapitulasi per Kategori & Rekening Belanja Modal")
         if not df_modal_filtered.empty:
             rekap_m = df_modal_filtered.groupby(['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
             
-            baris_total_m = pd.DataFrame([{
-                'Kode Kategori': 'TOTAL',
-                'Uraian Kategori': 'JUMLAH KESELURUHAN',
-                'Kode Rekening': '-',
-                'Nama Rekening': '-',
-                'Nilai Realisasi': rekap_m['Nilai Realisasi'].sum()
-            }])
-            rekap_m_tampil = pd.concat([rekap_m, baris_total_m], ignore_index=True)
-            rekap_m_tampil['Realisasi (Rp)'] = rekap_m_tampil['Nilai Realisasi'].apply(format_rupiah)
+            # Jika ada data pembanding aplikasi modal
+            if df_modal_app_rekap is not None:
+                rekap_m = pd.merge(rekap_m, df_modal_app_rekap, on='Kode Rekening', how='outer').fillna(0)
+                rekap_m['Kode Kategori'] = rekap_m['Kode Kategori'].replace(0, '-')
+                rekap_m['Uraian Kategori'] = rekap_m['Uraian Kategori'].replace(0, '-')
+                rekap_m['Nama Rekening'] = rekap_m['Nama Rekening'].replace(0, 'Dari Data Aplikasi Aset')
+                rekap_m['Selisih'] = rekap_m['Nilai Realisasi'] - rekap_m['Nilai Aset']
+                rekap_m['Status'] = rekap_m['Selisih'].apply(lambda x: '✅ COCOK' if round(x, 2) == 0 else '❌ SELISIH')
 
-            st.dataframe(
-                rekap_m_tampil[['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']],
-                use_container_width=True,
-                hide_index=True
-            )
+                baris_tot_m = pd.DataFrame([{
+                    'Kode Kategori': 'TOTAL',
+                    'Uraian Kategori': 'JUMLAH KESELURUHAN',
+                    'Kode Rekening': '-',
+                    'Nama Rekening': '-',
+                    'Nilai Realisasi': rekap_m['Nilai Realisasi'].sum(),
+                    'Nilai Aset': rekap_m['Nilai Aset'].sum(),
+                    'Selisih': rekap_m['Selisih'].sum(),
+                    'Status': '✅ COCOK' if round(rekap_m['Selisih'].sum(), 2) == 0 else '❌ SELISIH'
+                }])
+                tampil_m = pd.concat([rekap_m, baris_tot_m], ignore_index=True)
+                tampil_m['Realisasi LRA (Rp)'] = tampil_m['Nilai Realisasi'].apply(format_rupiah)
+                tampil_m['Nilai Aplikasi Aset (Rp)'] = tampil_m['Nilai Aset'].apply(format_rupiah)
+                tampil_m['Selisih (Rp)'] = tampil_m['Selisih'].apply(format_rupiah)
+
+                st.dataframe(
+                    tampil_m[['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Realisasi LRA (Rp)', 'Nilai Aplikasi Aset (Rp)', 'Selisih (Rp)', 'Status']],
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                baris_tot_m = pd.DataFrame([{
+                    'Kode Kategori': 'TOTAL',
+                    'Uraian Kategori': 'JUMLAH KESELURUHAN',
+                    'Kode Rekening': '-',
+                    'Nama Rekening': '-',
+                    'Nilai Realisasi': rekap_m['Nilai Realisasi'].sum()
+                }])
+                tampil_m = pd.concat([rekap_m, baris_tot_m], ignore_index=True)
+                tampil_m['Realisasi (Rp)'] = tampil_m['Nilai Realisasi'].apply(format_rupiah)
+                st.dataframe(
+                    tampil_m[['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Realisasi (Rp)']],
+                    use_container_width=True, hide_index=True
+                )
 
             st.markdown("---")
-            st.subheader("2. Rincian Dokumen Realisasi")
+            st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_m = df_modal_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_modal_filtered.columns]].copy()
             df_detail_m['Nilai Realisasi'] = df_detail_m['Nilai Realisasi'].apply(format_rupiah)
             st.dataframe(df_detail_m, use_container_width=True, hide_index=True)
         else:
-            st.warning("Tidak ditemukan data realisasi belanja modal (Akun 5.2) untuk SKPD ini.")
+            st.warning("Tidak ditemukan data belanja modal untuk SKPD ini.")
 
 else:
     st.info("👈 Silakan upload file **`LRA REALISASI JAN-JUNI30.xlsx`** pada menu di sebelah kiri.")
