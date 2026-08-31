@@ -10,136 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Modern dengan Independent Scroll Box & Sticky Header
-st.markdown("""
-<style>
-    .main-header { font-size: 26px; font-weight: 700; color: #1E3A8A; margin-bottom: 2px; }
-    .sub-header { font-size: 14px; color: #6B7280; margin-bottom: 20px; }
-    
-    .metric-box {
-        color: white; padding: 16px 20px; border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 15px;
-    }
-    .metric-title { font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; }
-    .metric-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
-    
-    .status-card-match {
-        background-color: #ECFDF5; border-left: 5px solid #10B981;
-        padding: 14px 18px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px;
-    }
-    .status-card-diff {
-        background-color: #FEF2F2; border-left: 5px solid #EF4444;
-        padding: 14px 18px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px;
-    }
-    
-    /* Container Box / Bubble Table Mandiri dengan Max-Height */
-    .table-container {
-        background-color: #FFFFFF;
-        border-radius: 12px;
-        border: 1px solid #CBD5E1;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        margin-top: 10px;
-        margin-bottom: 25px;
-        max-height: 480px; /* Batas tinggi scroll box */
-        overflow-y: auto;  /* Scroll vertikal mandiri */
-        overflow-x: auto;  /* Scroll horizontal mandiri */
-        position: relative;
-    }
-    
-    /* Table Styling */
-    table.custom-table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        font-size: 13px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    table.custom-table th {
-        background-color: #F1F5F9;
-        color: #1E293B;
-        font-weight: 700;
-        text-align: left;
-        padding: 11px 12px;
-        border-bottom: 2px solid #94A3B8;
-        white-space: nowrap;
-        position: sticky;
-        top: 0; /* Header tetap menempel di atas */
-        z-index: 10;
-    }
-    table.custom-table td {
-        padding: 9px 12px;
-        border-bottom: 1px solid #F1F5F9;
-        color: #334155;
-        vertical-align: middle;
-    }
-    table.custom-table tr:hover td {
-        background-color: #F8FAFC;
-    }
-    table.custom-table tr.total-row td {
-        background-color: #E2E8F0 !important;
-        font-weight: 800 !important;
-        color: #0F172A !important;
-        border-top: 2px solid #94A3B8 !important;
-        border-bottom: 2px solid #94A3B8 !important;
-        position: sticky;
-        bottom: 0; /* Total tetap menempel di bawah */
-        z-index: 9;
-    }
-    
-    /* Alignment & Formats */
-    .text-right { 
-        text-align: right; 
-        white-space: nowrap;
-        font-variant-numeric: tabular-nums;
-    }
-    .text-center { 
-        text-align: center; 
-        white-space: nowrap;
-    }
-    .text-code {
-        white-space: nowrap;
-        font-family: monospace;
-        font-size: 12.5px;
-        color: #475569;
-    }
-    
-    /* Kolom Selisih Berwarna */
-    .diff-match {
-        color: #059669 !important;
-        font-weight: 600;
-    }
-    .diff-alert {
-        color: #DC2626 !important;
-        font-weight: 700;
-        background-color: #FEF2F2;
-        border-radius: 6px;
-        padding: 3px 6px;
-    }
-    
-    /* Bubble Badge Status */
-    .badge-pill-match {
-        background-color: #D1FAE5;
-        color: #065F46;
-        padding: 4px 10px;
-        border-radius: 9999px;
-        font-weight: 600;
-        font-size: 12px;
-        display: inline-block;
-        border: 1px solid #A7F3D0;
-    }
-    .badge-pill-diff {
-        background-color: #FEE2E2;
-        color: #991B1B;
-        padding: 4px 10px;
-        border-radius: 9999px;
-        font-weight: 700;
-        font-size: 12px;
-        display: inline-block;
-        border: 1px solid #FECACA;
-    }
-</style>
-""", unsafe_allow_html=True)
-
+# Helper formatting Rupiah
 def format_rupiah(val):
     if pd.isna(val):
         return "Rp 0"
@@ -183,11 +54,115 @@ rek_persediaan, df_modal_map, error_msg = load_master_rak()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135679.png", width=70)
     st.markdown("### **Panel Kontrol**")
-    st.info("📌 **Master RAK Modal:** Terkunci otomatis (Akun `5.2...`)")
     
+    # SLIDER ZOOM IN / ZOOM OUT TABEL
+    zoom_scale = st.slider("🔍 **Zoom Ukuran Tabel (%)**", min_value=60, max_value=120, value=85, step=5)
+    st.caption("💡 *Gunakan 70%-80% agar seluruh kolom muat dalam 1 layar tanpa scroll samping.*")
+    st.markdown("---")
+    
+    st.info("📌 **Master RAK Modal:** Terkunci otomatis (Akun `5.2...`)")
     f_lra = st.file_uploader("📥 Upload LRA Realisasi (.xlsx)", type=["xlsx"])
     st.markdown("---")
     st.caption("Pemerintah Kabupaten Hulu Sungai Tengah © 2026")
+
+# Custom CSS Dinamis berdasarkan Zoom Slider
+font_sz = round(13 * (zoom_scale / 100), 1)
+font_code_sz = round(12.5 * (zoom_scale / 100), 1)
+pad_v = round(9 * (zoom_scale / 100), 1)
+pad_h = round(10 * (zoom_scale / 100), 1)
+
+st.markdown(f"""
+<style>
+    .main-header {{ font-size: 26px; font-weight: 700; color: #1E3A8A; margin-bottom: 2px; }}
+    .sub-header {{ font-size: 14px; color: #6B7280; margin-bottom: 20px; }}
+    
+    .metric-box {{
+        color: white; padding: 16px 20px; border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 15px;
+    }}
+    .metric-title {{ font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; }}
+    .metric-value {{ font-size: 22px; font-weight: 700; margin-top: 4px; }}
+    
+    .status-card-match {{
+        background-color: #ECFDF5; border-left: 5px solid #10B981;
+        padding: 14px 18px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px;
+    }}
+    .status-card-diff {{
+        background-color: #FEF2F2; border-left: 5px solid #EF4444;
+        padding: 14px 18px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px;
+    }}
+    
+    /* Container Box / Bubble Table Mandiri */
+    .table-container {{
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        border: 1px solid #CBD5E1;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        margin-top: 10px;
+        margin-bottom: 25px;
+        max-height: 500px;
+        overflow-y: auto;
+        overflow-x: auto;
+        position: relative;
+    }}
+    
+    /* Table Styling dengan Skala Dinamis (Zoom) */
+    table.custom-table {{
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: {font_sz}px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }}
+    table.custom-table th {{
+        background-color: #F1F5F9;
+        color: #1E293B;
+        font-weight: 700;
+        text-align: left;
+        padding: {pad_v + 2}px {pad_h}px;
+        border-bottom: 2px solid #94A3B8;
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }}
+    table.custom-table td {{
+        padding: {pad_v}px {pad_h}px;
+        border-bottom: 1px solid #F1F5F9;
+        color: #334155;
+        vertical-align: middle;
+    }}
+    table.custom-table tr:hover td {{
+        background-color: #F8FAFC;
+    }}
+    table.custom-table tr.total-row td {{
+        background-color: #E2E8F0 !important;
+        font-weight: 800 !important;
+        color: #0F172A !important;
+        border-top: 2px solid #94A3B8 !important;
+        border-bottom: 2px solid #94A3B8 !important;
+        position: sticky;
+        bottom: 0;
+        z-index: 9;
+    }}
+    
+    .text-right {{ text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }}
+    .text-center {{ text-align: center; white-space: nowrap; }}
+    .text-code {{ white-space: nowrap; font-family: monospace; font-size: {font_code_sz}px; color: #475569; }}
+    
+    .diff-match {{ color: #059669 !important; font-weight: 600; }}
+    .diff-alert {{ color: #DC2626 !important; font-weight: 700; background-color: #FEF2F2; border-radius: 6px; padding: 2px 6px; }}
+    
+    .badge-pill-match {{
+        background-color: #D1FAE5; color: #065F46; padding: 3px 8px; border-radius: 9999px;
+        font-weight: 600; font-size: {font_sz - 1}px; display: inline-block; border: 1px solid #A7F3D0;
+    }}
+    .badge-pill-diff {{
+        background-color: #FEE2E2; color: #991B1B; padding: 3px 8px; border-radius: 9999px;
+        font-weight: 700; font-size: {font_sz - 1}px; display: inline-block; border: 1px solid #FECACA;
+    }}
+</style>
+""", unsafe_allow_html=True)
 
 # --- HEADER UTAMA ---
 st.markdown('<div class="main-header">🏛️ Rekonsiliasi Rekening Persediaan & Belanja Modal</div>', unsafe_allow_html=True)
@@ -295,12 +270,12 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='min-width: 170px;'>Kode Rekening</th>
-                                <th style='min-width: 250px;'>Nama Rekening</th>
-                                <th class='text-right' style='min-width: 150px;'>Realisasi LRA (Rp)</th>
-                                <th class='text-right' style='min-width: 150px;'>Nilai SIPPER (Rp)</th>
-                                <th class='text-right' style='min-width: 140px;'>Selisih (Rp)</th>
-                                <th class='text-center' style='min-width: 110px;'>Status</th>
+                                <th>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right'>Realisasi LRA (Rp)</th>
+                                <th class='text-right'>Nilai SIPPER (Rp)</th>
+                                <th class='text-right'>Selisih (Rp)</th>
+                                <th class='text-center'>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -334,9 +309,9 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='min-width: 180px;'>Kode Rekening</th>
-                                <th style='min-width: 280px;'>Nama Rekening</th>
-                                <th class='text-right' style='min-width: 180px;'>Realisasi (Rp)</th>
+                                <th>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right'>Realisasi (Rp)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -353,7 +328,7 @@ if f_lra:
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file SIPPER di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
-            # --- 2. RINCIAN PERSEDIAAN DENGAN SCROLLBOX MANDIRI ---
+            # --- 2. RINCIAN PERSEDIAAN ---
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_p = df_pers_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_pers_filtered.columns]].copy()
@@ -377,14 +352,14 @@ if f_lra:
                 <table class='custom-table'>
                     <thead>
                         <tr>
-                            <th style='min-width: 140px;'>Kode Sub Kegiatan</th>
-                            <th style='min-width: 200px;'>Nama Sub Kegiatan</th>
-                            <th style='min-width: 160px;'>Kode Rekening</th>
-                            <th style='min-width: 200px;'>Nama Rekening</th>
-                            <th style='min-width: 220px;'>Nomor Dokumen</th>
-                            <th class='text-center' style='min-width: 120px;'>Tanggal Dokumen</th>
-                            <th style='min-width: 250px;'>Keterangan Dokumen</th>
-                            <th class='text-right' style='min-width: 150px;'>Nilai Realisasi (Rp)</th>
+                            <th>Kode Sub Kegiatan</th>
+                            <th>Nama Sub Kegiatan</th>
+                            <th>Kode Rekening</th>
+                            <th>Nama Rekening</th>
+                            <th>Nomor Dokumen</th>
+                            <th class='text-center'>Tanggal Dokumen</th>
+                            <th>Keterangan Dokumen</th>
+                            <th class='text-right'>Nilai Realisasi (Rp)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -468,14 +443,14 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='min-width: 140px;'>Kode Kategori</th>
-                                <th style='min-width: 170px;'>Uraian Kategori</th>
-                                <th style='min-width: 160px;'>Kode Rekening</th>
-                                <th style='min-width: 220px;'>Nama Rekening</th>
-                                <th class='text-right' style='min-width: 150px;'>Realisasi LRA (Rp)</th>
-                                <th class='text-right' style='min-width: 150px;'>Nilai Aplikasi Aset (Rp)</th>
-                                <th class='text-right' style='min-width: 140px;'>Selisih (Rp)</th>
-                                <th class='text-center' style='min-width: 100px;'>Status</th>
+                                <th>Kode Kategori</th>
+                                <th>Uraian Kategori</th>
+                                <th>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right'>Realisasi LRA (Rp)</th>
+                                <th class='text-right'>Nilai Aplikasi Aset (Rp)</th>
+                                <th class='text-right'>Selisih (Rp)</th>
+                                <th class='text-center'>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -511,11 +486,11 @@ if f_lra:
                     <table class='custom-table'>
                         <thead>
                             <tr>
-                                <th style='min-width: 140px;'>Kode Kategori</th>
-                                <th style='min-width: 180px;'>Uraian Kategori</th>
-                                <th style='min-width: 160px;'>Kode Rekening</th>
-                                <th style='min-width: 250px;'>Nama Rekening</th>
-                                <th class='text-right' style='min-width: 180px;'>Realisasi (Rp)</th>
+                                <th>Kode Kategori</th>
+                                <th>Uraian Kategori</th>
+                                <th>Kode Rekening</th>
+                                <th>Nama Rekening</th>
+                                <th class='text-right'>Realisasi (Rp)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -534,7 +509,7 @@ if f_lra:
                 st.markdown(table_html, unsafe_allow_html=True)
                 st.info("💡 *Upload file Pengadaan Aset di atas untuk menampilkan perbandingan dan status selisih secara otomatis.*")
 
-            # --- 2. RINCIAN MODAL DENGAN SCROLLBOX MANDIRI ---
+            # --- 2. RINCIAN MODAL ---
             st.markdown("---")
             st.subheader("2. Rincian Dokumen Realisasi LRA")
             df_detail_m = df_modal_filtered[[c for c in KOLOM_DETAIL_PILIHAN if c in df_modal_filtered.columns]].copy()
@@ -558,14 +533,14 @@ if f_lra:
                 <table class='custom-table'>
                     <thead>
                         <tr>
-                            <th style='min-width: 140px;'>Kode Sub Kegiatan</th>
-                            <th style='min-width: 200px;'>Nama Sub Kegiatan</th>
-                            <th style='min-width: 160px;'>Kode Rekening</th>
-                            <th style='min-width: 200px;'>Nama Rekening</th>
-                            <th style='min-width: 220px;'>Nomor Dokumen</th>
-                            <th class='text-center' style='min-width: 120px;'>Tanggal Dokumen</th>
-                            <th style='min-width: 250px;'>Keterangan Dokumen</th>
-                            <th class='text-right' style='min-width: 150px;'>Nilai Realisasi (Rp)</th>
+                            <th>Kode Sub Kegiatan</th>
+                            <th>Nama Sub Kegiatan</th>
+                            <th>Kode Rekening</th>
+                            <th>Nama Rekening</th>
+                            <th>Nomor Dokumen</th>
+                            <th class='text-center'>Tanggal Dokumen</th>
+                            <th>Keterangan Dokumen</th>
+                            <th class='text-right'>Nilai Realisasi (Rp)</th>
                         </tr>
                     </thead>
                     <tbody>
