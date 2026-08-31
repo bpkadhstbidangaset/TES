@@ -73,7 +73,7 @@ rek_persediaan, df_modal_map, error_msg = load_master_rak()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135679.png", width=70)
     st.markdown("### **Panel Kontrol**")
-    st.info("📌 **Master RAK Modal:** Terpasang di sistem")
+    st.info("📌 **RAK Persediaan dan Belanja Modal Terpasang di sistem** ")
     
     f_lra = st.file_uploader("📥 Upload LRA Realisasi (.xlsx)", type=["xlsx"])
     st.markdown("---")
