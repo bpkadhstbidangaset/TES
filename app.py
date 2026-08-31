@@ -1,276 +1,100 @@
-import io
-import re
-import numpy as np
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import os
+import io
 
-st.set_page_config(
-    page_title="Sistem Rekonsiliasi BMD vs LRA SIPD", layout="wide"
-)
+st.set_page_config(page_title="Aplikasi Rekon Persediaan & Modal", layout="wide")
+st.title("📊 Aplikasi Rekonsiliasi Realisasi Belanja")
+st.caption("Pemerintah Kabupaten Hulu Sungai Tengah")
 
-st.title("🏛️ Aplikasi Rekonsiliasi Belanja Modal & Persediaan BMD vs LRA SIPD")
-st.caption(
-    "Dirancang khusus untuk rekonsiliasi data LRA SIPD Hulu Sungai Tengah & Register BMD"
-)
+# --- FUNGSI LOAD MASTER PATOKAN (CACHED AGAR CEPAT) ---
+@st.cache_data
+def load_master_rak():
+    file_persediaan = "RAK PERSEDIAAN.xlsx"
+    file_modal = "RAK BELANJA MODAL.xlsx"
+    
+    # Cek apakah file master ada di direktori
+    if not os.path.exists(file_persediaan) or not os.path.exists(file_modal):
+        return None, None, f"File patokan '{file_persediaan}' atau '{file_modal}' tidak ditemukan di folder aplikasi."
 
+    # 1. Baca Master Persediaan
+    df_p_raw = pd.read_excel(file_persediaan, header=None).iloc[2:]
+    rek_persediaan = set(df_p_raw[1].dropna().astype(str).str.strip()) - {'-', 'KODE REKENING'}
 
-# --- 1. FUNGSI PARSER DATA ---
-def load_lra_sipd(file):
-    """Membaca file LRA SIPD yang headernya berada pada baris ke-5"""
-    df = pd.read_excel(file, skiprows=4)
-    df.columns = [str(c).strip() for c in df.columns]
+    # 2. Baca Master Belanja Modal
+    df_m_raw = pd.read_excel(file_modal, header=None).iloc[1:]
+    df_m_raw.columns = ['Kode Kategori', 'Uraian Kategori', 'Uraian Rekening', 'Kode Rekening']
+    df_m_clean = df_m_raw.dropna(subset=['Kode Rekening']).copy()
+    df_m_clean['Kode Rekening'] = df_m_clean['Kode Rekening'].astype(str).str.strip()
+    
+    # Ambil mapping unik kode rekening ke kategori
+    df_m_map = df_m_clean[['Kode Rekening', 'Kode Kategori', 'Uraian Kategori']].drop_duplicates('Kode Rekening')
 
-    # Standardisasi tipe data dan pembersihan string
-    df["Kode Rekening"] = df["Kode Rekening"].astype(str).str.strip()
-    df["Nama Rekening"] = df["Nama Rekening"].astype(str).str.strip()
-    df["Nama SKPD"] = df["Nama SKPD"].astype(str).str.strip()
-    df["Nomor SP2D"] = df["Nomor SP2D"].astype(str).str.strip()
-    df["Nilai Realisasi"] = pd.to_numeric(
-        df["Nilai Realisasi"], errors="coerce"
-    ).fillna(0)
-    return df
+    return rek_persediaan, df_m_map, None
 
+# Load master RAK otomatis
+rek_persediaan, df_modal_map, error_msg = load_master_rak()
 
-def load_bmd_entry(file):
-    """Membaca file entrian BMD bertingkat seperti DISDIK Data Aplikasi"""
-    raw = pd.read_excel(file, header=None)
+if error_msg:
+    st.error(error_msg)
+    st.info("Pastikan file 'RAK PERSEDIAAN.xlsx' dan 'RAK BELANJA MODAL.xlsx' berada di folder yang sama dengan script ini.")
+    st.stop()
 
-    # Identifikasi baris header tabel (mencari baris bertuliskan 'KODE' atau 'PENGADAAN')
-    header_idx = None
-    for idx, row in raw.iterrows():
-        if "KODE" in str(row.values) and "PENGADAAN" in str(row.values):
-            header_idx = idx
-            break
+# --- 1. UPLOAD HANYA FILE LRA ---
+with st.sidebar:
+    st.header("📂 Upload LRA")
+    f_lra = st.file_uploader("Upload LRA Realisasi (.xlsx)", type=["xlsx"])
+    st.success("✅ Master RAK Persediaan & Modal aktif (Otomatis)")
 
-    if header_idx is None:
-        header_idx = 7  # default fallback
+if f_lra:
+    with st.spinner("Memproses data realisasi..."):
+        # Baca LRA
+        df_lra = pd.read_excel(f_lra, sheet_name='Data Realisasi Dokumen', header=4)
+        df_lra['Kode Rekening'] = df_lra['Kode Rekening'].astype(str).str.strip()
 
-    df = pd.read_excel(file, skiprows=header_idx)
-    df.columns = [str(c).strip() for c in df.columns]
+        # Filter Persediaan
+        df_rekon_pers = df_lra[df_lra['Kode Rekening'].isin(rek_persediaan)].copy()
 
-    # Bersihkan nama kolom umum
-    col_mapping = {}
-    for col in df.columns:
-        c_upper = col.upper()
-        if "KODE" in c_upper:
-            col_mapping[col] = "Kode"
-        elif "URAIAN" in c_upper or "DESKRIPSI" in c_upper:
-            col_mapping[col] = "Uraian"
-        elif "PENGADAAN" in c_upper:
-            col_mapping[col] = "Nilai_Pengadaan"
-        elif "ASET" in c_upper:
-            col_mapping[col] = "Nilai_Aset"
-        elif "SELISIH" in c_upper:
-            col_mapping[col] = "Selisih_BMD"
+        # Filter Modal
+        df_rekon_modal = df_lra[df_lra['Kode Rekening'].isin(df_modal_map['Kode Rekening'].unique())].copy()
+        df_rekon_modal = df_rekon_modal.merge(df_modal_map, on='Kode Rekening', how='left')
 
-    df = df.rename(columns=col_mapping)
-    for col in ["Nilai_Pengadaan", "Nilai_Aset", "Selisih_BMD"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    return df
+    # --- 2. PILIH SKPD ---
+    daftar_skpd = ["Semua SKPD"] + sorted(list(df_lra['Nama SKPD'].dropna().unique()))
+    pilihan_skpd = st.selectbox("📌 Pilih SKPD:", daftar_skpd)
 
+    if pilihan_skpd != "Semua SKPD":
+        df_rekon_pers = df_rekon_pers[df_rekon_pers['Nama SKPD'] == pilihan_skpd]
+        df_rekon_modal = df_rekon_modal[df_rekon_modal['Nama SKPD'] == pilihan_skpd]
 
-def load_rak_reference(file_rak):
-    """Membaca file kamus/referensi akun RAK"""
-    df = pd.read_excel(file_rak)
-    # Cari baris yang memuat 'KODE REKENING'
-    header_row = 0
-    for idx, row in df.iterrows():
-        if "KODE REKENING" in str(row.values).upper():
-            header_row = idx + 1
-            break
-    df_clean = pd.read_excel(file_rak, skiprows=header_row)
-    df_clean.columns = [str(c).strip().upper() for c in df_clean.columns]
-    return df_clean
+    # --- 3. TAMPILKAN HASIL ---
+    tab1, tab2 = st.tabs(["📦 Rekon Rekening Persediaan", "🏢 Rekon Belanja Modal"])
 
+    # TAB PERSEDIAAN
+    with tab1:
+        total_pers = df_rekon_pers['Nilai Realisasi'].sum()
+        st.metric("Total Realisasi Persediaan", f"Rp {total_pers:,.2f}")
+        
+        st.subheader("Rekap per Rekening")
+        rekap_pers = df_rekon_pers.groupby(['Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
+        st.dataframe(rekap_pers, use_container_width=True)
 
-# --- 2. KOMPONEN UPLOAD FILE ---
-st.sidebar.header("📁 Unggah Dokumen")
-file_lra = st.sidebar.file_uploader(
-    "1. File LRA SIPD (.xlsx)", type=["xlsx", "xls"], key="lra"
-)
-file_bmd = st.sidebar.file_uploader(
-    "2. File Register BMD SKPD (.xlsx)", type=["xlsx", "xls"], key="bmd"
-)
-file_rak_modal = st.sidebar.file_uploader(
-    "3. RAK Belanja Modal (Opsional)", type=["xlsx", "xls"], key="rak_m"
-)
-file_rak_persediaan = st.sidebar.file_uploader(
-    "4. RAK Persediaan (Opsional)", type=["xlsx", "xls"], key="rak_p"
-)
+        st.subheader("Detail Transaksi Dokumen")
+        kolom_p = ['Tanggal SP2D', 'Nomor SP2D', 'Kode Rekening', 'Nama Rekening', 'Keterangan Dokumen', 'Nilai Realisasi']
+        st.dataframe(df_rekon_pers[[c for c in kolom_p if c in df_rekon_pers.columns]], use_container_width=True)
 
+    # TAB MODAL
+    with tab2:
+        total_modal = df_rekon_modal['Nilai Realisasi'].sum()
+        st.metric("Total Realisasi Belanja Modal", f"Rp {total_modal:,.2f}")
 
-# --- 3. PEMROSESAN & TAMPILAN TAB ---
-if file_lra and file_bmd:
-    df_lra = load_lra_sipd(file_lra)
-    df_bmd = load_bmd_entry(file_bmd)
+        st.subheader("Rekap per Kategori Aset & Rekening")
+        rekap_modal = df_rekon_modal.groupby(['Kode Kategori', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening'])['Nilai Realisasi'].sum().reset_index()
+        st.dataframe(rekap_modal, use_container_width=True)
 
-    # Filter Berdasarkan SKPD
-    daftar_skpd = sorted(df_lra["Nama SKPD"].dropna().unique().tolist())
-    selected_skpd = st.selectbox("🏢 Pilih SKPD untuk Direkonsiliasi:", daftar_skpd)
-    df_lra_skpd = df_lra[df_lra["Nama SKPD"] == selected_skpd]
+        st.subheader("Detail Transaksi Dokumen")
+        kolom_m = ['Tanggal SP2D', 'Nomor SP2D', 'Uraian Kategori', 'Kode Rekening', 'Nama Rekening', 'Keterangan Dokumen', 'Nilai Realisasi']
+        st.dataframe(df_rekon_modal[[c for c in kolom_m if c in df_rekon_modal.columns]], use_container_width=True)
 
-    tab_modal, tab_persediaan, tab_download = st.tabs(
-        [
-            "🏢 Rekon Belanja Modal (Akun 5.2.x & Kapitalisasi)",
-            "📦 Rekon Belanja Persediaan (Akun 5.1.02.01.x)",
-            "📥 Download Kertas Kerja Lengkap",
-        ]
-    )
-
-    # -------------------------------------------------------------
-    # TAB 1: BELANJA MODAL
-    # -------------------------------------------------------------
-    with tab_modal:
-        st.subheader("1. Belanja Modal Murni (Akun 5.2.x)")
-        lra_modal_52 = df_lra_skpd[
-            df_lra_skpd["Kode Rekening"].str.startswith("5.2")
-        ]
-
-        # Cek juga belanja jasa konsultansi / pengawasan yang masuk kapitalisasi (5.1.02.02.008)
-        st.caption(
-            "💡 Termasuk Belanja Modal Akun 5.2 dan Belanja Jasa Konsultansi/Perencanaan Proyek (Kapitalisasi)"
-        )
-        lra_kapitalisasi = df_lra_skpd[
-            df_lra_skpd["Kode Rekening"].str.startswith("5.1.02.02.008")
-        ]
-        lra_modal_gabung = pd.concat(
-            [lra_modal_52, lra_kapitalisasi], ignore_index=True
-        )
-
-        # Rekap per Rekening Belanja
-        rekap_rekening_modal = (
-            lra_modal_gabung.groupby(
-                ["Kode Rekening", "Nama Rekening"], as_index=False
-            )["Nilai Realisasi"]
-            .sum()
-            .rename(columns={"Nilai Realisasi": "Realisasi LRA"})
-        )
-
-        col_m1, col_m2, col_m3 = st.columns(3)
-        total_lra_modal = lra_modal_gabung["Nilai Realisasi"].sum()
-        total_bmd_modal = (
-            df_bmd["Nilai_Aset"].sum()
-            if "Nilai_Aset" in df_bmd.columns
-            else df_bmd["Nilai_Pengadaan"].sum()
-        )
-        selisih_modal = total_lra_modal - total_bmd_modal
-
-        col_m1.metric("Total Belanja Modal LRA", f"Rp {total_lra_modal:,.0f}")
-        col_m2.metric("Total Aset Masuk BMD", f"Rp {total_bmd_modal:,.0f}")
-        col_m3.metric(
-            "Selisih Belanja Modal",
-            f"Rp {selisih_modal:,.0f}",
-            delta_color="inverse",
-        )
-
-        st.markdown("#### Ringkasan Realisasi per Kode Rekening Belanja")
-        st.dataframe(
-            rekap_rekening_modal.style.format({"Realisasi LRA": "Rp {:,.2f}"}),
-            use_container_width=True,
-        )
-
-        st.markdown("#### Rincian Realisasi Dokumen SP2D Modal di LRA")
-        st.dataframe(
-            lra_modal_gabung[
-                [
-                    "Nomor SP2D",
-                    "Kode Rekening",
-                    "Nama Rekening",
-                    "Keterangan Dokumen",
-                    "Nilai Realisasi",
-                ]
-            ].style.format({"Nilai Realisasi": "Rp {:,.2f}"}),
-            use_container_width=True,
-        )
-
-    # -------------------------------------------------------------
-    # TAB 2: BELANJA PERSEDIAAN
-    # -------------------------------------------------------------
-    with tab_persediaan:
-        st.subheader("2. Belanja Persediaan / Pakai Habis (Akun 5.1.02.01.x)")
-        lra_persediaan = df_lra_skpd[
-            df_lra_skpd["Kode Rekening"].str.startswith("5.1.02.01")
-        ]
-
-        rekap_persediaan = (
-            lra_persediaan.groupby(
-                ["Kode Rekening", "Nama Rekening"], as_index=False
-            )["Nilai Realisasi"]
-            .sum()
-            .rename(columns={"Nilai Realisasi": "Realisasi LRA Persediaan"})
-        )
-
-        tot_lra_persediaan = lra_persediaan["Nilai Realisasi"].sum()
-        st.metric(
-            "Total Realisasi Belanja Persediaan di LRA",
-            f"Rp {tot_lra_persediaan:,.0f}",
-        )
-
-        st.markdown("#### Daftar Rekening Belanja Persediaan")
-        st.dataframe(
-            rekap_persediaan.style.format(
-                {"Realisasi LRA Persediaan": "Rp {:,.2f}"}
-            ),
-            use_container_width=True,
-        )
-
-        st.markdown("#### Rincian Transaksi Belanja Persediaan per SP2D")
-        st.dataframe(
-            lra_persediaan[
-                [
-                    "Nomor SP2D",
-                    "Kode Rekening",
-                    "Nama Rekening",
-                    "Keterangan Dokumen",
-                    "Nilai Realisasi",
-                ]
-            ].style.format({"Nilai Realisasi": "Rp {:,.2f}"}),
-            use_container_width=True,
-        )
-
-    # -------------------------------------------------------------
-    # TAB 3: UNDUH KERTAS KERJA EXCEL
-    # -------------------------------------------------------------
-    with tab_download:
-        st.subheader("📥 Unduh Kertas Kerja Rekonsiliasi Format Excel")
-
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            rekap_rekening_modal.to_excel(
-                writer, index=False, sheet_name="Rekap_Modal"
-            )
-            lra_modal_gabung[
-                [
-                    "Nomor SP2D",
-                    "Kode Rekening",
-                    "Nama Rekening",
-                    "Keterangan Dokumen",
-                    "Nilai Realisasi",
-                ]
-            ].to_excel(writer, index=False, sheet_name="Rincian_SP2D_Modal")
-            rekap_persediaan.to_excel(
-                writer, index=False, sheet_name="Rekap_Persediaan"
-            )
-            lra_persediaan[
-                [
-                    "Nomor SP2D",
-                    "Kode Rekening",
-                    "Nama Rekening",
-                    "Keterangan Dokumen",
-                    "Nilai Realisasi",
-                ]
-            ].to_excel(
-                writer, index=False, sheet_name="Rincian_SP2D_Persediaan"
-            )
-
-        st.download_button(
-            label="📊 Download Excel Kertas Kerja Rekon",
-            data=output.getvalue(),
-            file_name=f"Kertas_Kerja_Rekon_{selected_skpd}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
 else:
-    st.info(
-        "👋 Silakan unggah minimal file **LRA SIPD** dan **File Register BMD SKPD** pada panel samping kiri."
-    )
+    st.info("👋 Silakan upload file **LRA Realisasi (.xlsx)** pada menu di sebelah kiri.")
