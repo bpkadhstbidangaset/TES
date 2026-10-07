@@ -331,17 +331,37 @@ def baca_sipper(data: bytes):
     df = df.dropna(subset=['Kode Rekening']).copy()
     df['Kode Rekening'] = df['Kode Rekening'].astype(str).str.strip()
     df['Nilai SIPPER'] = pd.to_numeric(df['Nilai SIPPER'], errors='coerce').fillna(0)
-    return df.groupby('Kode Rekening', as_index=False)['Nilai SIPPER'].sum()
+    return df.groupby('Kode Rekening', as_index=False)['Nilai SIPPER'].sum(), {}
 
 
 @st.cache_data(show_spinner=False)
 def baca_aset(data: bytes):
-    df = pd.read_excel(BytesIO(data), header=None, usecols=[0, 3], engine=EXCEL_ENGINE)
-    df.columns = ['Kode Rekening', 'Nilai Aset']
-    df['Kode Rekening'] = df['Kode Rekening'].astype(str).str.strip()
-    df = df[df['Kode Rekening'].str.startswith('5.2')].copy()
-    df['Nilai Aset'] = pd.to_numeric(df['Nilai Aset'], errors='coerce').fillna(0)
-    return df.groupby('Kode Rekening', as_index=False)['Nilai Aset'].sum()
+    """Laporan 'Rincian Pengadaan Aset'. Mengembalikan (nilai per rekening 5.2, info kop laporan)."""
+    raw = pd.read_excel(BytesIO(data), header=None, usecols=[0, 1, 2, 3], engine=EXCEL_ENGINE)
+    raw.columns = ['Kode', 'Kolom B', 'Kolom C', 'Nilai']
+    kode = raw['Kode'].astype(str).str.strip()
+    nilai = pd.to_numeric(raw['Nilai'], errors='coerce').fillna(0)
+
+    # Kop laporan: unit kerja, tahun, dan tanggal cetak ("Barabai, 6 Oktober 2026")
+    meta = {}
+    for label, isi in zip(kode.head(15).str.upper(), raw['Kolom C'].head(15)):
+        if label == 'UNIT KERJA' and pd.notna(isi):
+            meta['unit_kerja'] = str(isi).strip()
+        elif label == 'TAHUN' and pd.notna(isi):
+            meta['tahun'] = str(isi).strip().removesuffix('.0')
+    cetak = raw['Nilai'].astype(str).str.extract(r',\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})\s*$')[0].dropna()
+    if not cetak.empty:
+        meta['dicetak'] = cetak.iloc[-1]
+
+    # Baris rekening non-5.2 (mis. 5.1.02 = belanja barang/jasa yang dikapitalisasi jadi aset):
+    # tidak dibandingkan dengan Belanja Modal, tapi nilainya dilaporkan agar total file bisa ditelusuri.
+    is_52 = kode.str.startswith('5.2')
+    non_52 = kode.str.match(r'^5\.\d\.\d{2}\.\d{2}\.\d{3}\.\d{5}$') & ~is_52
+    meta['non_52_nilai'] = float(nilai[non_52].sum())
+    meta['non_52_rekening'] = int(kode[non_52].nunique())
+
+    df = pd.DataFrame({'Kode Rekening': kode[is_52], 'Nilai Aset': nilai[is_52]})
+    return df.groupby('Kode Rekening', as_index=False)['Nilai Aset'].sum(), meta
 
 
 @st.cache_data(show_spinner=False)
@@ -408,6 +428,38 @@ CFG_MODAL = {
 }
 
 
+def _norm(teks):
+    return " ".join(str(teks).upper().split())
+
+
+def info_file_pembanding(meta, skpd_terpilih):
+    """Tampilkan identitas file pembanding & peringatan jika tidak sesuai dengan SKPD terpilih."""
+    unit = meta.get('unit_kerja')
+    if unit:
+        bagian = [f"Unit kerja di file: **{unit}**"]
+        if meta.get('tahun'):
+            bagian.append(f"Tahun {meta['tahun']}")
+        if meta.get('dicetak'):
+            bagian.append(f"dicetak {meta['dicetak']}")
+        st.caption(" · ".join(bagian))
+        if skpd_terpilih is None:
+            st.warning(
+                f"⚠️ File ini hanya memuat satu unit kerja (**{unit}**), sedangkan tampilan saat ini "
+                f"**semua SKPD**. Selisih akan sangat besar dan menyesatkan. Pilih SKPD yang sesuai di bagian atas."
+            )
+        elif _norm(unit) != _norm(skpd_terpilih):
+            st.warning(
+                f"⚠️ File ini untuk unit kerja **{unit}**, sedangkan SKPD yang dipilih **{skpd_terpilih}**. "
+                f"Hasil perbandingan di bawah tidak valid."
+            )
+    if meta.get('non_52_nilai'):
+        st.info(
+            f"ℹ️ File ini juga memuat {meta['non_52_rekening']:,} rekening di luar 5.2 (belanja yang dikapitalisasi "
+            f"menjadi aset) senilai {format_rupiah(meta['non_52_nilai'])}. Bagian ini tidak ikut dibandingkan, "
+            f"sehingga angka TOTAL di file lebih besar daripada angka pembanding di bawah."
+        )
+
+
 SEMUA_PILIHAN = "__SEMUA__"
 
 
@@ -441,7 +493,7 @@ def filter_rincian(df, kunci):
     return df
 
 
-def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan):
+def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan, skpd_terpilih):
     """Render satu tab rekonsiliasi (uploader pembanding + rekap + rincian + per bulan).
 
     df = data setelah filter SKPD & bulan; df_semua_bulan = data setelah filter SKPD saja."""
@@ -451,8 +503,9 @@ def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan):
     pembanding = None
     if f:
         try:
-            pembanding = cfg['parser'](f.getvalue())
+            pembanding, meta_file = cfg['parser'](f.getvalue())
             st.success(cfg['pesan_sukses'])
+            info_file_pembanding(meta_file, skpd_terpilih)
         except Exception as e:
             st.error(f"{cfg['pesan_gagal']}: {e}")
 
@@ -686,8 +739,10 @@ else:
             ['TOTAL', None, None, ringkas['Nilai Realisasi'].sum()],
         )
 
+skpd_terpilih = None if pilihan_skpd == SEMUA else pilihan_skpd
+
 tab1, tab2 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL"])
 with tab1:
-    tampilkan_rekon(df_pers_filtered, CFG_PERSEDIAAN, df_pers_skpd, daftar_bulan)
+    tampilkan_rekon(df_pers_filtered, CFG_PERSEDIAAN, df_pers_skpd, daftar_bulan, skpd_terpilih)
 with tab2:
-    tampilkan_rekon(df_modal_filtered, CFG_MODAL, df_modal_skpd, daftar_bulan)
+    tampilkan_rekon(df_modal_filtered, CFG_MODAL, df_modal_skpd, daftar_bulan, skpd_terpilih)
