@@ -402,8 +402,10 @@ CFG_MODAL = {
 }
 
 
-def tampilkan_rekon(df, cfg):
-    """Render satu tab rekonsiliasi (uploader pembanding + rekap + rincian)."""
+def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan):
+    """Render satu tab rekonsiliasi (uploader pembanding + rekap + rincian + per bulan).
+
+    df = data setelah filter SKPD & bulan; df_semua_bulan = data setelah filter SKPD saja."""
     st.markdown(cfg['judul_uploader'])
     f = st.file_uploader(cfg['label_uploader'], type=["xlsx"], key=f"up_{cfg['key']}")
 
@@ -419,6 +421,7 @@ def tampilkan_rekon(df, cfg):
     st.subheader(cfg['judul_rekap'])
     if df.empty:
         st.warning(cfg['kosong'])
+        tampilkan_bulanan(df_semua_bulan, cfg, urut_bulan)
         return
 
     kolom_id = cfg['kolom_id']
@@ -473,68 +476,61 @@ def tampilkan_rekon(df, cfg):
         key=f"dl_{cfg['key']}",
     )
 
-
-def _pivot_bulanan(df, urut_bulan):
-    """Rekening x bulan (kolom bulan diurutkan, bulan tanpa transaksi = 0) + kolom Total."""
-    pv = df.pivot_table(index=['Kode Rekening', 'Nama Rekening'], columns='BULAN',
-                        values='Nilai Realisasi', aggfunc='sum', fill_value=0)
-    pv = pv.reindex(columns=urut_bulan, fill_value=0)
-    pv['Total'] = pv.sum(axis=1)
-    pv.columns.name = None
-    return pv.reset_index()
+    tampilkan_bulanan(df_semua_bulan, cfg, urut_bulan)
 
 
-def _tabel_pivot(df, urut_bulan, judul, kunci):
-    st.subheader(judul)
-    if df.empty:
-        st.warning("Tidak ada data untuk SKPD ini.")
-        return
-    pv = _pivot_bulanan(df, urut_bulan)
-    cols = [('Kode Rekening', 'Kode Rekening', 'code'), ('Nama Rekening', 'Nama Rekening', 'text')]
-    cols += [(label_bulan(b), b, 'money') for b in urut_bulan] + [('Total (Rp)', 'Total', 'money')]
-    total = ['TOTAL', 'JUMLAH KESELURUHAN'] + [pv[b].sum() for b in urut_bulan] + [pv['Total'].sum()]
-    render_table(pv, cols, total)
-    pv_unduh = pv.rename(columns={b: label_bulan(b) for b in urut_bulan})
-    st.download_button("⬇️ Unduh tabel ini (Excel)", data=ke_excel(pv_unduh),
-                       file_name=f"realisasi_bulanan_{kunci}.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                       key=f"dl_bln_{kunci}")
-
-
-def tampilkan_bulanan(df_pers, df_modal, urut_bulan):
-    """Tab realisasi per bulan. Mengikuti filter SKPD, mengabaikan filter bulan."""
+def tampilkan_bulanan(df, cfg, urut_bulan):
+    """Bagian 'Realisasi per Bulan' di dalam tab rekon. `df` = data SKPD terpilih, SEMUA bulan."""
+    st.markdown("---")
+    st.subheader("3. Realisasi per Bulan")
+    st.caption("Bagian ini selalu menampilkan semua bulan (tidak terpengaruh filter bulan).")
     if not urut_bulan:
         st.warning("Kolom BULAN tidak ditemukan atau kosong di file LRA.")
         return
+    if df.empty:
+        st.warning(cfg['kosong'])
+        return
 
-    st.subheader("1. Ringkasan Realisasi per Bulan")
-    per_p = df_pers.groupby('BULAN')['Nilai Realisasi'].sum()
-    per_m = df_modal.groupby('BULAN')['Nilai Realisasi'].sum()
-    ring = pd.DataFrame({'Persediaan': per_p, 'Belanja Modal': per_m}).reindex(urut_bulan).fillna(0)
-    ring['Total'] = ring['Persediaan'] + ring['Belanja Modal']
-    ring['Kumulatif'] = ring['Total'].cumsum()
-    ring.index.name = 'BULAN'
+    # --- ringkasan per bulan + kumulatif ---
+    ring = df.groupby('BULAN')['Nilai Realisasi'].sum().reindex(urut_bulan, fill_value=0).rename('Realisasi').to_frame()
+    ring['Kumulatif'] = ring['Realisasi'].cumsum()
     ring = ring.reset_index()
     ring['Bulan'] = ring['BULAN'].map(label_bulan)
 
+    st.markdown("##### Ringkasan per Bulan")
     cols = [
         ('Bulan', 'Bulan', 'text'),
-        ('Belanja Persediaan (Rp)', 'Persediaan', 'money'),
-        ('Belanja Modal (Rp)', 'Belanja Modal', 'money'),
-        ('Total Bulan Ini (Rp)', 'Total', 'money'),
+        ('Realisasi Bulan Ini (Rp)', 'Realisasi', 'money'),
         ('Kumulatif s.d. Bulan Ini (Rp)', 'Kumulatif', 'money'),
     ]
-    total = ['TOTAL', ring['Persediaan'].sum(), ring['Belanja Modal'].sum(), ring['Total'].sum(), None]
-    render_table(ring, cols, total)
+    render_table(ring, cols, ['TOTAL', ring['Realisasi'].sum(), None])
 
     # Label sumbu '01 Jan' agar urutan grafik mengikuti kalender
     grafik = ring.assign(Label=ring['BULAN'].str.replace('_', ' ').str.title()).set_index('Label')
-    st.bar_chart(grafik[['Persediaan', 'Belanja Modal']])
+    st.bar_chart(grafik['Realisasi'])
 
-    st.markdown("---")
-    _tabel_pivot(df_pers, urut_bulan, "2. Persediaan per Rekening per Bulan", "persediaan")
-    st.markdown("---")
-    _tabel_pivot(df_modal, urut_bulan, "3. Belanja Modal per Rekening per Bulan", "modal")
+    # --- rekening x bulan ---
+    st.markdown("##### Per Rekening per Bulan")
+    kolom_id = cfg['kolom_id']
+    key_id = [k for _, k, _ in kolom_id]
+    pv = df.pivot_table(index=key_id, columns='BULAN', values='Nilai Realisasi', aggfunc='sum', fill_value=0)
+    pv = pv.reindex(columns=urut_bulan, fill_value=0)
+    pv['Total'] = pv.sum(axis=1)
+    pv.columns.name = None
+    pv = pv.reset_index()
+
+    cols = kolom_id + [(label_bulan(b), b, 'money') for b in urut_bulan] + [('Total (Rp)', 'Total', 'money')]
+    total = ['TOTAL', 'JUMLAH KESELURUHAN'] + [None] * (len(kolom_id) - 2)
+    total += [pv[b].sum() for b in urut_bulan] + [pv['Total'].sum()]
+    render_table(pv, cols, total)
+
+    st.download_button(
+        "⬇️ Unduh tabel per bulan (Excel)",
+        data=ke_excel(pv.rename(columns={b: label_bulan(b) for b in urut_bulan})),
+        file_name=f"realisasi_bulanan_{cfg['key']}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"dl_bln_{cfg['key']}",
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -606,10 +602,8 @@ with m2:
 with m3:
     metric_box("📊 Total Gabungan Realisasi", total_p + total_m, "#1E293B, #334155")
 
-tab1, tab2, tab3 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL", "📅 REALISASI PER BULAN"])
+tab1, tab2 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL"])
 with tab1:
-    tampilkan_rekon(df_pers_filtered, CFG_PERSEDIAAN)
+    tampilkan_rekon(df_pers_filtered, CFG_PERSEDIAAN, df_pers_skpd, daftar_bulan)
 with tab2:
-    tampilkan_rekon(df_modal_filtered, CFG_MODAL)
-with tab3:
-    tampilkan_bulanan(df_pers_skpd, df_modal_skpd, daftar_bulan)
+    tampilkan_rekon(df_modal_filtered, CFG_MODAL, df_modal_skpd, daftar_bulan)
