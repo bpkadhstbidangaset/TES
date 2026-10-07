@@ -161,8 +161,24 @@ def _badge(selisih):
     return '<span class="badge-pill-diff">❌ SELISIH</span>'
 
 
+_BADGE_TXT = {
+    'COCOK': '<span class="badge-pill-match">✅ COCOK</span>',
+    'SELURUHNYA': '<span class="badge-pill-match">✅ SELURUHNYA</span>',
+    'SELISIH': '<span class="badge-pill-diff">❌ SELISIH</span>',
+    'ANOMALI': '<span class="badge-pill-diff">❌ ASET &gt; LRA</span>',
+    'SEBAGIAN': '<span class="badge-pill-diff" style="background:#FEF3C7;color:#92400E;">◐ SEBAGIAN</span>',
+    'BELUM UPLOAD': '<span class="badge-pill-diff" style="background:#FEF3C7;color:#92400E;">⏳ BELUM UPLOAD</span>',
+}
+
+
 def _cell(kind, v):
     """Satu sel <td> sesuai jenis kolomnya."""
+    if kind == 'money_opt':
+        return "<td class='text-right'>-</td>" if pd.isna(v) else _cell('money', v)
+    if kind == 'diff_opt':
+        return "<td class='text-right'>-</td>" if pd.isna(v) else _cell('diff', v)
+    if kind == 'status_txt':
+        return f"<td class='text-center'>{_BADGE_TXT.get(v, _esc(v))}</td>"
     if kind == 'money':
         return f"<td class='text-right'>{format_rupiah(v)}</td>"
     if kind == 'diff':
@@ -180,12 +196,13 @@ def _cell(kind, v):
 def _cell_total(kind, v):
     if v is None:
         return "<td class='text-center'>-</td>" if kind == 'center' else "<td>-</td>"
-    if kind in ('money', 'diff', 'status'):
+    if kind in ('money', 'diff', 'status', 'money_opt', 'diff_opt', 'status_txt'):
         return _cell(kind, v)
     return f"<td>{_esc(v)}</td>"
 
 
-_TH_CLASS = {'money': 'text-right', 'diff': 'text-right', 'center': 'text-center', 'status': 'text-center'}
+_TH_CLASS = {'money': 'text-right', 'diff': 'text-right', 'money_opt': 'text-right', 'diff_opt': 'text-right',
+             'center': 'text-center', 'status': 'text-center', 'status_txt': 'text-center'}
 
 
 def render_table(df, cols, total, max_rows=None):
@@ -318,10 +335,16 @@ def proses_lra(data: bytes):
     tak['Bulan'] = tak['BULAN'].map(label_bulan)
     df_tak = tak[['BULAN', 'Bulan', 'Nama SKPD', 'Kode Rekening', 'Nama Rekening', 'Nilai Realisasi']].reset_index(drop=True)
 
+    # Agregat rekening belanja non-5.2 (mis. 5.1) per SKPD & bulan, untuk rekon kapitalisasi ke aset
+    kode = df['Kode Rekening']
+    non52 = df[kode.str.startswith('5.') & ~kode.str.startswith('5.2')].copy()
+    non52['Nilai Realisasi'] = pd.to_numeric(non52['Nilai Realisasi'], errors='coerce').fillna(0)
+    df_non52 = non52.groupby(['Nama SKPD', 'BULAN', 'Kode Rekening', 'Nama Rekening'], as_index=False)['Nilai Realisasi'].sum()
+
     # Urutan bulan mengikuti kode di file ('01_JAN' < '02_FEB' < ...)
     daftar_bulan = sorted(set(df['BULAN'].astype(str)) - {''})
 
-    return df_pers.reset_index(drop=True), df_modal.reset_index(drop=True), daftar_skpd, daftar_bulan, df_tak
+    return df_pers.reset_index(drop=True), df_modal.reset_index(drop=True), daftar_skpd, daftar_bulan, df_tak, df_non52
 
 
 @st.cache_data(show_spinner=False)
@@ -359,6 +382,12 @@ def baca_aset(data: bytes):
     non_52 = kode.str.match(r'^5\.\d\.\d{2}\.\d{2}\.\d{3}\.\d{5}$') & ~is_52
     meta['non_52_nilai'] = float(nilai[non_52].sum())
     meta['non_52_rekening'] = int(kode[non_52].nunique())
+    n52 = pd.DataFrame({
+        'Kode Rekening': kode[non_52],
+        'Nama Rekening': raw['Kolom B'][non_52].fillna('').astype(str).str.strip(),
+        'Nilai Aset': nilai[non_52],
+    })
+    meta['non_52_df'] = n52.groupby('Kode Rekening', as_index=False).agg({'Nama Rekening': 'first', 'Nilai Aset': 'sum'})
 
     df = pd.DataFrame({'Kode Rekening': kode[is_52], 'Nilai Aset': nilai[is_52]})
     return df.groupby('Kode Rekening', as_index=False)['Nilai Aset'].sum(), meta
@@ -455,8 +484,46 @@ def info_file_pembanding(meta, skpd_terpilih):
     if meta.get('non_52_nilai'):
         st.info(
             f"ℹ️ File ini juga memuat {meta['non_52_rekening']:,} rekening di luar 5.2 (belanja yang dikapitalisasi "
-            f"menjadi aset) senilai {format_rupiah(meta['non_52_nilai'])}. Bagian ini tidak ikut dibandingkan, "
-            f"sehingga angka TOTAL di file lebih besar daripada angka pembanding di bawah."
+            f"menjadi aset) senilai {format_rupiah(meta['non_52_nilai'])}. Bagian ini tidak masuk angka pembanding "
+            f"Belanja Modal (5.2), tetapi dibandingkan terpisah pada bagian 'Kapitalisasi Belanja Barang/Jasa (5.1)'. "
+            f"Karena itu angka TOTAL di file lebih besar daripada angka pembanding."
+        )
+
+
+def tampilkan_kapitalisasi(meta, df_lra_non52, rek_persediaan_set):
+    """Bagian 1b: rekening non-5.2 (mis. 5.1) yang dikapitalisasi ke aset vs realisasi LRA rekening yang sama."""
+    aset51 = meta.get('non_52_df')
+    if aset51 is None or aset51.empty:
+        return
+    st.markdown("---")
+    st.subheader("1b. Kapitalisasi Belanja Barang/Jasa (Rekening 5.1)")
+    st.caption(
+        "Belanja barang/jasa yang dicatat sebagai aset. Tidak seluruh realisasi satu rekening harus dikapitalisasi, "
+        "jadi LRA lebih besar dari Aset umumnya wajar (status SEBAGIAN). Yang perlu dicek adalah Aset lebih besar dari LRA."
+    )
+    lra51 = df_lra_non52.groupby('Kode Rekening')['Nilai Realisasi'].sum()
+    t = aset51.copy()
+    t['Realisasi LRA'] = t['Kode Rekening'].map(lra51).fillna(0)
+    t['Selisih'] = t['Realisasi LRA'] - t['Nilai Aset']
+    t['Status'] = t['Selisih'].map(lambda x: 'SELURUHNYA' if abs(x) < 0.005 else ('ANOMALI' if x < 0 else 'SEBAGIAN'))
+    juga_persediaan = t['Kode Rekening'].isin(rek_persediaan_set)
+    t['Nama Rekening'] = t['Nama Rekening'] + juga_persediaan.map({True: ' (juga rekening Persediaan)', False: ''})
+
+    cols = [
+        ('Kode Rekening', 'Kode Rekening', 'code'),
+        ('Nama Rekening', 'Nama Rekening', 'text'),
+        ('Realisasi LRA (Rp)', 'Realisasi LRA', 'money'),
+        ('Dikapitalisasi ke Aset (Rp)', 'Nilai Aset', 'money'),
+        ('LRA yang tidak dikapitalisasi (Rp)', 'Selisih', 'money'),
+        ('Status', 'Status', 'status_txt'),
+    ]
+    render_table(t, cols, ['TOTAL', 'JUMLAH KESELURUHAN', t['Realisasi LRA'].sum(), t['Nilai Aset'].sum(), t['Selisih'].sum(), None])
+    if (t['Status'] == 'ANOMALI').any():
+        st.warning("⚠️ Ada rekening dengan nilai Aset lebih besar dari realisasi LRA. Periksa periode, SKPD, atau kesalahan input.")
+    if juga_persediaan.any():
+        st.info(
+            "ℹ️ Rekening bertanda *(juga rekening Persediaan)* ikut dihitung sebagai Persediaan di tab Rekon Persediaan. "
+            "Pastikan nilai yang dikapitalisasi sebagai aset tidak tercatat ganda sebagai persediaan."
         )
 
 
@@ -493,14 +560,14 @@ def filter_rincian(df, kunci):
     return df
 
 
-def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan, skpd_terpilih):
+def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan, skpd_terpilih, aset_otomatis=None, df_non52=None):
     """Render satu tab rekonsiliasi (uploader pembanding + rekap + rincian + per bulan).
 
     df = data setelah filter SKPD & bulan; df_semua_bulan = data setelah filter SKPD saja."""
     st.markdown(cfg['judul_uploader'])
     f = st.file_uploader(cfg['label_uploader'], type=["xlsx"], key=f"up_{cfg['key']}")
 
-    pembanding = None
+    pembanding, meta_file = None, {}
     if f:
         try:
             pembanding, meta_file = cfg['parser'](f.getvalue())
@@ -508,11 +575,20 @@ def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan, skpd_terpilih):
             info_file_pembanding(meta_file, skpd_terpilih)
         except Exception as e:
             st.error(f"{cfg['pesan_gagal']}: {e}")
+    elif aset_otomatis is not None:
+        pembanding, meta_file = aset_otomatis['df'], aset_otomatis['meta']
+        st.info(f"📎 Memakai file dari upload banyak file di sidebar: **{aset_otomatis['nama_file']}** (cocok dengan SKPD terpilih).")
+        info_file_pembanding(meta_file, skpd_terpilih)
+
+    def bagian_51():
+        if df_non52 is not None and meta_file.get('non_52_df') is not None:
+            tampilkan_kapitalisasi(meta_file, df_non52, rek_persediaan)
 
     st.markdown("---")
     st.subheader(cfg['judul_rekap'])
     if df.empty:
         st.warning(cfg['kosong'])
+        bagian_51()
         tampilkan_bulanan(df_semua_bulan, cfg, urut_bulan)
         return
 
@@ -567,6 +643,7 @@ def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan, skpd_terpilih):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key=f"dl_rekap_{cfg['key']}",
     )
+    bagian_51()
 
     # --- 2. RINCIAN ---
     st.markdown("---")
@@ -649,6 +726,85 @@ def tampilkan_bulanan(df, cfg, urut_bulan):
     )
 
 
+def tampilkan_rekap_semua(df_modal_bulan, aset_per_skpd, daftar_skpd, catatan):
+    """Rekap Belanja Modal (5.2) semua SKPD: LRA vs Pengadaan Aset dari file yang sudah diupload."""
+    st.subheader("Rekap Belanja Modal semua SKPD")
+    st.caption(
+        "Upload file *Rincian Pengadaan Aset* (satu file per SKPD, boleh banyak sekaligus) di sidebar. "
+        "SKPD dikenali otomatis dari kop file (UNIT KERJA). Mengikuti filter bulan di atas."
+    )
+    for pesan in catatan['error']:
+        st.error(f"⚠️ {pesan}")
+    for pesan in catatan['duplikat']:
+        st.warning(f"⚠️ {pesan}")
+
+    lra = df_modal_bulan.groupby('Nama SKPD')['Nilai Realisasi'].sum()
+    nama_norm = {_norm(n): n for n in daftar_skpd}
+    baris = []
+    for skpd in daftar_skpd:
+        entry = aset_per_skpd.get(_norm(skpd))
+        nilai_lra = float(lra.get(skpd, 0))
+        if entry is None:
+            if nilai_lra == 0:
+                continue  # tidak ada belanja modal & tidak ada file: tidak relevan
+            baris.append({'SKPD': skpd, 'LRA': nilai_lra, 'Pengadaan': float('nan'), 'Selisih': float('nan'),
+                          'Status': 'BELUM UPLOAD', 'Kapitalisasi 5.1': float('nan'), 'Urut': 2})
+        else:
+            pengadaan = float(entry['df']['Nilai Aset'].sum())
+            selisih = nilai_lra - pengadaan
+            baris.append({'SKPD': skpd, 'LRA': nilai_lra, 'Pengadaan': pengadaan, 'Selisih': selisih,
+                          'Status': 'COCOK' if abs(selisih) < 0.005 else 'SELISIH',
+                          'Kapitalisasi 5.1': float(entry['meta'].get('non_52_nilai', 0)),
+                          'Urut': 1 if abs(selisih) < 0.005 else 0})
+
+    tidak_dikenal = [e['meta']['unit_kerja'] for k, e in aset_per_skpd.items() if k not in nama_norm]
+    if tidak_dikenal:
+        st.warning("⚠️ Unit kerja berikut ada di file aset tetapi tidak ditemukan di LRA (periksa penulisan nama): "
+                   + "; ".join(tidak_dikenal))
+
+    if not baris:
+        st.info("👈 Upload file Rincian Pengadaan Aset di sidebar untuk melihat rekap per SKPD.")
+        return
+    if not aset_per_skpd:
+        st.info("👈 Belum ada file aset yang diupload. Upload satu atau banyak file *Rincian Pengadaan Aset* di sidebar.")
+    rekap = pd.DataFrame(baris)
+    rekap['abs_selisih'] = rekap['Selisih'].abs().fillna(0)
+    rekap = rekap.sort_values(['Urut', 'abs_selisih', 'LRA'], ascending=[True, False, False]).reset_index(drop=True)
+
+    n = rekap['Status'].value_counts()
+    st.markdown(
+        f"**{len(rekap)} SKPD** punya belanja modal atau file aset: "
+        f"✅ {n.get('COCOK', 0)} cocok · ❌ {n.get('SELISIH', 0)} selisih · ⏳ {n.get('BELUM UPLOAD', 0)} belum upload"
+    )
+    status_pilih = st.selectbox("Tampilkan status", ["Semua", "SELISIH", "COCOK", "BELUM UPLOAD"], key="filter_status_semua")
+    tampil = rekap if status_pilih == "Semua" else rekap[rekap['Status'] == status_pilih]
+
+    ada_file = rekap[rekap['Status'] != 'BELUM UPLOAD']
+    cols = [
+        ('Nama SKPD', 'SKPD', 'text'),
+        ('Belanja Modal LRA (Rp)', 'LRA', 'money'),
+        ('Pengadaan Aset (Rp)', 'Pengadaan', 'money_opt'),
+        ('Selisih (Rp)', 'Selisih', 'diff_opt'),
+        ('Status', 'Status', 'status_txt'),
+        ('Kapitalisasi 5.1 di file (Rp)', 'Kapitalisasi 5.1', 'money_opt'),
+    ]
+    total = ['TOTAL (SKPD yang sudah ada file)', ada_file['LRA'].sum(), ada_file['Pengadaan'].sum(),
+             ada_file['Selisih'].sum(), None, ada_file['Kapitalisasi 5.1'].sum()]
+    if tampil.empty:
+        st.info("Tidak ada SKPD dengan status tersebut.")
+    else:
+        render_table(tampil, cols, total)
+    st.caption("Baris TOTAL hanya menjumlahkan SKPD yang sudah ada file asetnya, supaya selisihnya sebanding.")
+
+    ekspor = rekap[['SKPD', 'LRA', 'Pengadaan', 'Selisih', 'Status', 'Kapitalisasi 5.1']].rename(columns={
+        'SKPD': 'Nama SKPD', 'LRA': 'Belanja Modal LRA (Rp)', 'Pengadaan': 'Pengadaan Aset (Rp)',
+        'Selisih': 'Selisih (Rp)', 'Kapitalisasi 5.1': 'Kapitalisasi 5.1 di file (Rp)'})
+    st.download_button(
+        "⬇️ Unduh rekap semua SKPD (Excel)", data=ke_excel(ekspor), file_name="rekap_semua_skpd.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_rekap_semua",
+    )
+
+
 # ----------------------------------------------------------------------------
 # SIDEBAR & HEADER
 # ----------------------------------------------------------------------------
@@ -660,6 +816,10 @@ with st.sidebar:
     st.info("📌 **Master RAK Belanja sudah di SISTEM**")
 
     f_lra = st.file_uploader("📥 Upload LRA Realisasi (.xlsx)", type=["xlsx"])
+    f_asets = st.file_uploader(
+        "📥 Rincian Pengadaan Aset (boleh banyak file, 1 file per SKPD)",
+        type=["xlsx"], accept_multiple_files=True, key="up_aset_banyak",
+    )
     st.markdown("---")
     st.caption("Pemerintah Kabupaten Hulu Sungai Tengah © 2026")
 
@@ -678,10 +838,32 @@ if not f_lra:
 # PROSES UTAMA
 # ----------------------------------------------------------------------------
 try:
-    df_rekon_pers, df_rekon_modal, daftar_skpd, daftar_bulan, df_tak = proses_lra(f_lra.getvalue())
+    df_rekon_pers, df_rekon_modal, daftar_skpd, daftar_bulan, df_tak, df_non52 = proses_lra(f_lra.getvalue())
 except Exception as e:
     st.error(f"⚠️ Gagal membaca file LRA: {e}")
     st.stop()
+
+# File aset (banyak): dikenali per SKPD dari kop 'UNIT KERJA'
+aset_per_skpd = {}
+catatan_aset = {'error': [], 'duplikat': []}
+for fa in f_asets or []:
+    try:
+        df_a, meta_a = baca_aset(fa.getvalue())
+    except Exception as e:
+        catatan_aset['error'].append(f"{fa.name}: format tidak sesuai ({e})")
+        continue
+    unit = meta_a.get('unit_kerja')
+    if not unit:
+        catatan_aset['error'].append(f"{fa.name}: baris 'UNIT KERJA' di kop laporan tidak ditemukan")
+        continue
+    kunci = _norm(unit)
+    if kunci in aset_per_skpd:
+        catatan_aset['duplikat'].append(
+            f"Ada lebih dari satu file untuk {unit} ({aset_per_skpd[kunci]['nama_file']} dan {fa.name}). Dipakai: {fa.name}.")
+    aset_per_skpd[kunci] = {'df': df_a, 'meta': meta_a, 'nama_file': fa.name}
+if f_asets:
+    with st.sidebar:
+        st.caption(f"✅ {len(aset_per_skpd)} SKPD dari {len(f_asets)} file aset dimuat.")
 
 SEMUA = "-- SEMUA SKPD --"
 col_skpd, col_bulan = st.columns([2, 2])
@@ -710,6 +892,11 @@ else:
 df_tak_f = df_tak if pilihan_skpd == SEMUA else df_tak[df_tak['Nama SKPD'] == pilihan_skpd]
 if bulan_pilih:
     df_tak_f = df_tak_f[df_tak_f['BULAN'].isin(bulan_pilih)]
+
+df_non52_f = df_non52 if pilihan_skpd == SEMUA else df_non52[df_non52['Nama SKPD'] == pilihan_skpd]
+if bulan_pilih:
+    df_non52_f = df_non52_f[df_non52_f['BULAN'].isin(bulan_pilih)]
+df_modal_bulan = df_rekon_modal[df_rekon_modal['BULAN'].isin(bulan_pilih)] if bulan_pilih else df_rekon_modal
 
 total_p = df_pers_filtered['Nilai Realisasi'].sum()
 total_m = df_modal_filtered['Nilai Realisasi'].sum()
@@ -741,8 +928,13 @@ else:
 
 skpd_terpilih = None if pilihan_skpd == SEMUA else pilihan_skpd
 
-tab1, tab2 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL"])
+aset_otomatis = aset_per_skpd.get(_norm(skpd_terpilih)) if skpd_terpilih else None
+
+tab1, tab2, tab3 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL", "📋 REKAP SEMUA SKPD"])
 with tab1:
     tampilkan_rekon(df_pers_filtered, CFG_PERSEDIAAN, df_pers_skpd, daftar_bulan, skpd_terpilih)
 with tab2:
-    tampilkan_rekon(df_modal_filtered, CFG_MODAL, df_modal_skpd, daftar_bulan, skpd_terpilih)
+    tampilkan_rekon(df_modal_filtered, CFG_MODAL, df_modal_skpd, daftar_bulan, skpd_terpilih,
+                    aset_otomatis=aset_otomatis, df_non52=df_non52_f)
+with tab3:
+    tampilkan_rekap_semua(df_modal_bulan, aset_per_skpd, daftar_skpd, catatan_aset)
