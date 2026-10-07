@@ -22,6 +22,7 @@ SHEET_LRA = "Data Realisasi Dokumen"
 
 # Hanya kolom ini yang dibaca dari file LRA (file asli punya 46 kolom).
 KOLOM_LRA = [
+    'BULAN',
     'Nama SKPD',
     'Kode Sub Kegiatan', 'Nama Sub Kegiatan',
     'Kode Rekening', 'Nama Rekening',
@@ -30,6 +31,12 @@ KOLOM_LRA = [
 ]
 KOLOM_WAJIB = ['Nama SKPD', 'Kode Rekening', 'Nilai Realisasi']
 KOLOM_TEKS = [c for c in KOLOM_LRA if c != 'Nilai Realisasi']
+
+NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+              'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
+# Cadangan jika kode bulan tidak diawali nomor: dicocokkan dari 3 huruf pertama
+NAMA_BULAN_PREFIX = {'JAN': 0, 'FEB': 1, 'MAR': 2, 'APR': 3, 'MEI': 4, 'JUN': 5, 'JUL': 6, 'AGU': 7, 'AUG': 7,
+                     'SEP': 8, 'OKT': 9, 'OCT': 9, 'NOV': 10, 'DES': 11, 'DEC': 11}
 
 MAX_BARIS_RINCI = 1000  # batas baris tabel rincian yang digambar sebagai HTML
 
@@ -248,6 +255,16 @@ def load_master_rak():
     return rek_persediaan, df_modal_map, None
 
 
+def label_bulan(raw):
+    """'04_APRIL' / '08_AGUST' / '09_SEPT' -> nama bulan lengkap. Tak dikenali -> apa adanya."""
+    raw = str(raw).strip()
+    nomor = raw.split('_')[0]
+    if nomor.isdigit() and 1 <= int(nomor) <= 12:
+        return NAMA_BULAN[int(nomor) - 1]
+    idx = NAMA_BULAN_PREFIX.get(raw.split('_')[-1][:3].upper())
+    return NAMA_BULAN[idx] if idx is not None else (raw or '-')
+
+
 def _format_tanggal(v):
     if hasattr(v, 'strftime'):
         return v.strftime('%d/%m/%Y')
@@ -293,8 +310,12 @@ def proses_lra(data: bytes):
     for d in (df_pers, df_modal):
         d['Nilai Realisasi'] = pd.to_numeric(d['Nilai Realisasi'], errors='coerce').fillna(0)
         d['Tanggal Dokumen'] = d['Tanggal Dokumen'].map(_format_tanggal)
+        d['Bulan'] = d['BULAN'].map(label_bulan)
 
-    return df_pers.reset_index(drop=True), df_modal.reset_index(drop=True), daftar_skpd
+    # Urutan bulan mengikuti kode di file ('01_JAN' < '02_FEB' < ...)
+    daftar_bulan = sorted(set(df['BULAN'].astype(str)) - {''})
+
+    return df_pers.reset_index(drop=True), df_modal.reset_index(drop=True), daftar_skpd, daftar_bulan
 
 
 @st.cache_data(show_spinner=False)
@@ -334,6 +355,7 @@ KOLOM_RINCI = [
     ('Nama Rekening', 'Nama Rekening', 'text'),
     ('Nomor Dokumen', 'Nomor Dokumen', 'code'),
     ('Tanggal Dokumen', 'Tanggal Dokumen', 'center'),
+    ('Bulan', 'Bulan', 'center'),
     ('Keterangan Dokumen', 'Keterangan Dokumen', 'text'),
     ('Nilai Realisasi (Rp)', 'Nilai Realisasi', 'money'),
 ]
@@ -435,7 +457,7 @@ def tampilkan_rekon(df, cfg):
     st.markdown("---")
     st.subheader("2. Rincian Dokumen Realisasi LRA")
     tot_rinci = df['Nilai Realisasi'].sum()
-    total_rinci = ['TOTAL', 'JUMLAH REALISASI DOKUMEN', None, None, None, None, None, tot_rinci]
+    total_rinci = ['TOTAL', 'JUMLAH REALISASI DOKUMEN'] + [None] * (len(KOLOM_RINCI) - 3) + [tot_rinci]
     render_table(df, KOLOM_RINCI, total_rinci, max_rows=MAX_BARIS_RINCI)
 
     if len(df) > MAX_BARIS_RINCI:
@@ -450,6 +472,69 @@ def tampilkan_rekon(df, cfg):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key=f"dl_{cfg['key']}",
     )
+
+
+def _pivot_bulanan(df, urut_bulan):
+    """Rekening x bulan (kolom bulan diurutkan, bulan tanpa transaksi = 0) + kolom Total."""
+    pv = df.pivot_table(index=['Kode Rekening', 'Nama Rekening'], columns='BULAN',
+                        values='Nilai Realisasi', aggfunc='sum', fill_value=0)
+    pv = pv.reindex(columns=urut_bulan, fill_value=0)
+    pv['Total'] = pv.sum(axis=1)
+    pv.columns.name = None
+    return pv.reset_index()
+
+
+def _tabel_pivot(df, urut_bulan, judul, kunci):
+    st.subheader(judul)
+    if df.empty:
+        st.warning("Tidak ada data untuk SKPD ini.")
+        return
+    pv = _pivot_bulanan(df, urut_bulan)
+    cols = [('Kode Rekening', 'Kode Rekening', 'code'), ('Nama Rekening', 'Nama Rekening', 'text')]
+    cols += [(label_bulan(b), b, 'money') for b in urut_bulan] + [('Total (Rp)', 'Total', 'money')]
+    total = ['TOTAL', 'JUMLAH KESELURUHAN'] + [pv[b].sum() for b in urut_bulan] + [pv['Total'].sum()]
+    render_table(pv, cols, total)
+    pv_unduh = pv.rename(columns={b: label_bulan(b) for b in urut_bulan})
+    st.download_button("⬇️ Unduh tabel ini (Excel)", data=ke_excel(pv_unduh),
+                       file_name=f"realisasi_bulanan_{kunci}.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key=f"dl_bln_{kunci}")
+
+
+def tampilkan_bulanan(df_pers, df_modal, urut_bulan):
+    """Tab realisasi per bulan. Mengikuti filter SKPD, mengabaikan filter bulan."""
+    if not urut_bulan:
+        st.warning("Kolom BULAN tidak ditemukan atau kosong di file LRA.")
+        return
+
+    st.subheader("1. Ringkasan Realisasi per Bulan")
+    per_p = df_pers.groupby('BULAN')['Nilai Realisasi'].sum()
+    per_m = df_modal.groupby('BULAN')['Nilai Realisasi'].sum()
+    ring = pd.DataFrame({'Persediaan': per_p, 'Belanja Modal': per_m}).reindex(urut_bulan).fillna(0)
+    ring['Total'] = ring['Persediaan'] + ring['Belanja Modal']
+    ring['Kumulatif'] = ring['Total'].cumsum()
+    ring.index.name = 'BULAN'
+    ring = ring.reset_index()
+    ring['Bulan'] = ring['BULAN'].map(label_bulan)
+
+    cols = [
+        ('Bulan', 'Bulan', 'text'),
+        ('Belanja Persediaan (Rp)', 'Persediaan', 'money'),
+        ('Belanja Modal (Rp)', 'Belanja Modal', 'money'),
+        ('Total Bulan Ini (Rp)', 'Total', 'money'),
+        ('Kumulatif s.d. Bulan Ini (Rp)', 'Kumulatif', 'money'),
+    ]
+    total = ['TOTAL', ring['Persediaan'].sum(), ring['Belanja Modal'].sum(), ring['Total'].sum(), None]
+    render_table(ring, cols, total)
+
+    # Label sumbu '01 Jan' agar urutan grafik mengikuti kalender
+    grafik = ring.assign(Label=ring['BULAN'].str.replace('_', ' ').str.title()).set_index('Label')
+    st.bar_chart(grafik[['Persediaan', 'Belanja Modal']])
+
+    st.markdown("---")
+    _tabel_pivot(df_pers, urut_bulan, "2. Persediaan per Rekening per Bulan", "persediaan")
+    st.markdown("---")
+    _tabel_pivot(df_modal, urut_bulan, "3. Belanja Modal per Rekening per Bulan", "modal")
 
 
 # ----------------------------------------------------------------------------
@@ -481,21 +566,34 @@ if not f_lra:
 # PROSES UTAMA
 # ----------------------------------------------------------------------------
 try:
-    df_rekon_pers, df_rekon_modal, daftar_skpd = proses_lra(f_lra.getvalue())
+    df_rekon_pers, df_rekon_modal, daftar_skpd, daftar_bulan = proses_lra(f_lra.getvalue())
 except Exception as e:
     st.error(f"⚠️ Gagal membaca file LRA: {e}")
     st.stop()
 
 SEMUA = "-- SEMUA SKPD --"
-col_filter, _ = st.columns([2, 1])
-with col_filter:
+col_skpd, col_bulan = st.columns([2, 2])
+with col_skpd:
     pilihan_skpd = st.selectbox("🎯 **Pilih Perangkat Daerah (SKPD):**", [SEMUA] + daftar_skpd)
+with col_bulan:
+    bulan_pilih = st.multiselect(
+        "📅 **Pilih Bulan** (kosong = semua bulan):",
+        options=daftar_bulan, format_func=label_bulan, placeholder="Semua bulan",
+    )
 
+# Filter SKPD dulu (dipakai tab Per Bulan), lalu filter bulan (dipakai metrik & tab rekon)
 if pilihan_skpd == SEMUA:
-    df_pers_filtered, df_modal_filtered = df_rekon_pers, df_rekon_modal
+    df_pers_skpd, df_modal_skpd = df_rekon_pers, df_rekon_modal
 else:
-    df_pers_filtered = df_rekon_pers[df_rekon_pers['Nama SKPD'] == pilihan_skpd]
-    df_modal_filtered = df_rekon_modal[df_rekon_modal['Nama SKPD'] == pilihan_skpd]
+    df_pers_skpd = df_rekon_pers[df_rekon_pers['Nama SKPD'] == pilihan_skpd]
+    df_modal_skpd = df_rekon_modal[df_rekon_modal['Nama SKPD'] == pilihan_skpd]
+
+if bulan_pilih:
+    df_pers_filtered = df_pers_skpd[df_pers_skpd['BULAN'].isin(bulan_pilih)]
+    df_modal_filtered = df_modal_skpd[df_modal_skpd['BULAN'].isin(bulan_pilih)]
+    st.caption("Periode ditampilkan: " + ", ".join(label_bulan(b) for b in bulan_pilih))
+else:
+    df_pers_filtered, df_modal_filtered = df_pers_skpd, df_modal_skpd
 
 total_p = df_pers_filtered['Nilai Realisasi'].sum()
 total_m = df_modal_filtered['Nilai Realisasi'].sum()
@@ -508,8 +606,10 @@ with m2:
 with m3:
     metric_box("📊 Total Gabungan Realisasi", total_p + total_m, "#1E293B, #334155")
 
-tab1, tab2 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL"])
+tab1, tab2, tab3 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL", "📅 REALISASI PER BULAN"])
 with tab1:
     tampilkan_rekon(df_pers_filtered, CFG_PERSEDIAAN)
 with tab2:
     tampilkan_rekon(df_modal_filtered, CFG_MODAL)
+with tab3:
+    tampilkan_bulanan(df_pers_skpd, df_modal_skpd, daftar_bulan)
