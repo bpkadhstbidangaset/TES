@@ -312,10 +312,16 @@ def proses_lra(data: bytes):
         d['Tanggal Dokumen'] = d['Tanggal Dokumen'].map(_format_tanggal)
         d['Bulan'] = d['BULAN'].map(label_bulan)
 
+    # Rekening 5.2 di LRA yang tidak ada di master RAK (tidak ikut dihitung sebagai Belanja Modal)
+    tak = df[df['Kode Rekening'].str.startswith('5.2') & ~df['Kode Rekening'].isin(df_modal_map['Kode Rekening'])].copy()
+    tak['Nilai Realisasi'] = pd.to_numeric(tak['Nilai Realisasi'], errors='coerce').fillna(0)
+    tak['Bulan'] = tak['BULAN'].map(label_bulan)
+    df_tak = tak[['BULAN', 'Bulan', 'Nama SKPD', 'Kode Rekening', 'Nama Rekening', 'Nilai Realisasi']].reset_index(drop=True)
+
     # Urutan bulan mengikuti kode di file ('01_JAN' < '02_FEB' < ...)
     daftar_bulan = sorted(set(df['BULAN'].astype(str)) - {''})
 
-    return df_pers.reset_index(drop=True), df_modal.reset_index(drop=True), daftar_skpd, daftar_bulan
+    return df_pers.reset_index(drop=True), df_modal.reset_index(drop=True), daftar_skpd, daftar_bulan, df_tak
 
 
 @st.cache_data(show_spinner=False)
@@ -402,6 +408,39 @@ CFG_MODAL = {
 }
 
 
+SEMUA_PILIHAN = "__SEMUA__"
+
+
+def filter_rincian(df, kunci):
+    """Filter rincian: per rekening, per sub kegiatan, dan pencarian teks pada nomor/keterangan dokumen."""
+    nama_rek = df.drop_duplicates('Kode Rekening').set_index('Kode Rekening')['Nama Rekening']
+    nama_sub = df.drop_duplicates('Kode Sub Kegiatan').set_index('Kode Sub Kegiatan')['Nama Sub Kegiatan']
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        rek = st.selectbox(
+            "Filter rekening", [SEMUA_PILIHAN] + sorted(nama_rek.index), key=f"f_rek_{kunci}",
+            format_func=lambda k: "-- Semua rekening --" if k == SEMUA_PILIHAN else f"{k} — {nama_rek[k]}",
+        )
+    with c2:
+        sub = st.selectbox(
+            "Filter sub kegiatan", [SEMUA_PILIHAN] + sorted(nama_sub.index), key=f"f_sub_{kunci}",
+            format_func=lambda k: "-- Semua sub kegiatan --" if k == SEMUA_PILIHAN else f"{k or '(tanpa kode)'} — {nama_sub[k]}",
+        )
+    with c3:
+        cari = st.text_input("Cari nomor / keterangan dokumen", key=f"f_cari_{kunci}").strip()
+
+    if rek != SEMUA_PILIHAN:
+        df = df[df['Kode Rekening'] == rek]
+    if sub != SEMUA_PILIHAN:
+        df = df[df['Kode Sub Kegiatan'] == sub]
+    if cari:
+        cocok = (df['Nomor Dokumen'].astype(str).str.contains(cari, case=False, regex=False)
+                 | df['Keterangan Dokumen'].astype(str).str.contains(cari, case=False, regex=False))
+        df = df[cocok]
+    return df
+
+
 def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan):
     """Render satu tab rekonsiliasi (uploader pembanding + rekap + rincian + per bulan).
 
@@ -449,32 +488,56 @@ def tampilkan_rekon(df, cfg, df_semua_bulan, urut_bulan):
             ('Selisih (Rp)', 'Selisih', 'diff'),
             ('Status', 'Selisih', 'status'),
         ]
-        render_table(rekap, cols, awal_total + [tot_lra, tot_p, tot_selisih, tot_selisih])
+        hanya_selisih = st.checkbox("🔍 Tampilkan hanya rekening yang selisih", key=f"selisih_{cfg['key']}")
+        tampil = rekap[rekap['Selisih'].abs() >= 0.005] if hanya_selisih else rekap
+        if tampil.empty:
+            st.success("✅ Tidak ada rekening yang selisih.")
+        else:
+            render_table(tampil, cols, awal_total + [tot_lra, tot_p, tot_selisih, tot_selisih])
+        if hanya_selisih:
+            st.caption(f"Menampilkan {len(tampil):,} dari {len(rekap):,} rekening. Baris TOTAL tetap dihitung dari seluruh rekening.")
         kartu_status(tot_lra, tot_p, tot_selisih, cfg['teks_cocok'], cfg['teks_selisih'])
+
+        ekspor = rekap[key_id + ['Nilai Realisasi', nilai_p, 'Selisih']].rename(columns={
+            'Nilai Realisasi': 'Realisasi LRA (Rp)', nilai_p: cfg['header_pembanding'], 'Selisih': 'Selisih (Rp)'})
+        ekspor['Status'] = rekap['Selisih'].abs().lt(0.005).map({True: 'COCOK', False: 'SELISIH'})
     else:
         cols = kolom_id + [('Realisasi (Rp)', 'Nilai Realisasi', 'money')]
         render_table(rekap, cols, awal_total + [rekap['Nilai Realisasi'].sum()])
         st.info(cfg['info_upload'])
+        ekspor = rekap[key_id + ['Nilai Realisasi']].rename(columns={'Nilai Realisasi': 'Realisasi (Rp)'})
+
+    st.download_button(
+        "⬇️ Unduh hasil rekon (Excel)",
+        data=ke_excel(ekspor),
+        file_name=f"rekon_{cfg['key']}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"dl_rekap_{cfg['key']}",
+    )
 
     # --- 2. RINCIAN ---
     st.markdown("---")
     st.subheader("2. Rincian Dokumen Realisasi LRA")
-    tot_rinci = df['Nilai Realisasi'].sum()
-    total_rinci = ['TOTAL', 'JUMLAH REALISASI DOKUMEN'] + [None] * (len(KOLOM_RINCI) - 3) + [tot_rinci]
-    render_table(df, KOLOM_RINCI, total_rinci, max_rows=MAX_BARIS_RINCI)
+    d = filter_rincian(df, cfg['key'])
+    if d.empty:
+        st.info("Tidak ada dokumen yang cocok dengan filter.")
+    else:
+        tot_rinci = d['Nilai Realisasi'].sum()
+        total_rinci = ['TOTAL', 'JUMLAH REALISASI DOKUMEN'] + [None] * (len(KOLOM_RINCI) - 3) + [tot_rinci]
+        render_table(d, KOLOM_RINCI, total_rinci, max_rows=MAX_BARIS_RINCI)
 
-    if len(df) > MAX_BARIS_RINCI:
-        st.caption(
-            f"Menampilkan {MAX_BARIS_RINCI:,} dari {len(df):,} baris agar halaman tetap ringan. "
-            f"Total di atas dihitung dari seluruh baris. Unduh Excel untuk data lengkap."
+        if len(d) > MAX_BARIS_RINCI:
+            st.caption(
+                f"Menampilkan {MAX_BARIS_RINCI:,} dari {len(d):,} baris agar halaman tetap ringan. "
+                f"Total di atas dihitung dari seluruh baris. Persempit dengan filter di atas, atau unduh Excel untuk data lengkap."
+            )
+        st.download_button(
+            "⬇️ Unduh rincian (Excel)",
+            data=ke_excel(d[[k for _, k, _ in KOLOM_RINCI]]),
+            file_name=f"rincian_{cfg['key']}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"dl_{cfg['key']}",
         )
-    st.download_button(
-        "⬇️ Unduh rincian (Excel)",
-        data=ke_excel(df[[k for _, k, _ in KOLOM_RINCI]]),
-        file_name=f"rincian_{cfg['key']}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key=f"dl_{cfg['key']}",
-    )
 
     tampilkan_bulanan(df_semua_bulan, cfg, urut_bulan)
 
@@ -562,7 +625,7 @@ if not f_lra:
 # PROSES UTAMA
 # ----------------------------------------------------------------------------
 try:
-    df_rekon_pers, df_rekon_modal, daftar_skpd, daftar_bulan = proses_lra(f_lra.getvalue())
+    df_rekon_pers, df_rekon_modal, daftar_skpd, daftar_bulan, df_tak = proses_lra(f_lra.getvalue())
 except Exception as e:
     st.error(f"⚠️ Gagal membaca file LRA: {e}")
     st.stop()
@@ -591,6 +654,10 @@ if bulan_pilih:
 else:
     df_pers_filtered, df_modal_filtered = df_pers_skpd, df_modal_skpd
 
+df_tak_f = df_tak if pilihan_skpd == SEMUA else df_tak[df_tak['Nama SKPD'] == pilihan_skpd]
+if bulan_pilih:
+    df_tak_f = df_tak_f[df_tak_f['BULAN'].isin(bulan_pilih)]
+
 total_p = df_pers_filtered['Nilai Realisasi'].sum()
 total_m = df_modal_filtered['Nilai Realisasi'].sum()
 
@@ -601,6 +668,23 @@ with m2:
     metric_box("🏢 Total Belanja Modal (LRA)", total_m, "#4F46E5, #6366F1")
 with m3:
     metric_box("📊 Total Gabungan Realisasi", total_p + total_m, "#1E293B, #334155")
+
+if df_tak_f.empty:
+    st.caption("✅ Semua rekening Belanja Modal (5.2) di LRA terpetakan di master RAK.")
+else:
+    st.warning(
+        f"⚠️ Ada {df_tak_f['Kode Rekening'].nunique():,} rekening Belanja Modal (5.2) di LRA senilai "
+        f"{format_rupiah(df_tak_f['Nilai Realisasi'].sum())} yang **tidak ada di master RAK**, "
+        f"sehingga tidak ikut dihitung di angka di atas. Periksa apakah master RAK perlu diperbarui."
+    )
+    with st.expander("Lihat rekening yang tidak terpetakan"):
+        ringkas = df_tak_f.groupby(['Nama SKPD', 'Kode Rekening', 'Nama Rekening'], as_index=False)['Nilai Realisasi'].sum()
+        render_table(
+            ringkas,
+            [('Nama SKPD', 'Nama SKPD', 'text'), ('Kode Rekening', 'Kode Rekening', 'code'),
+             ('Nama Rekening', 'Nama Rekening', 'text'), ('Realisasi (Rp)', 'Nilai Realisasi', 'money')],
+            ['TOTAL', None, None, ringkas['Nilai Realisasi'].sum()],
+        )
 
 tab1, tab2 = st.tabs(["📦 REKON PERSEDIAAN", "🏢 REKON BELANJA MODAL"])
 with tab1:
